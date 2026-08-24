@@ -3,14 +3,21 @@ package com.joseph.miasistente;
 import android.content.Context;
 
 import java.util.Calendar;
+import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class UserContextResolver {
+    private static final Pattern ROLE_FACT = Pattern.compile("(?iu)^\\s*(.+?)\\s+es\\s+mi\\s+(.+?)\\s*$");
+    private static final Pattern ROLE_FACT_REVERSED = Pattern.compile("(?iu)^\\s*mi\\s+(.+?)\\s+es\\s+(.+?)\\s*$");
+
     private UserContextResolver() {}
 
     public static String enrich(Context context, String spoken, long nowMillis) {
         if (spoken == null) return "";
-        String normalized = VoiceCommandParser.normalizeForIntent(spoken);
+        String out = resolveMemoryAliases(context, spoken);
+        String normalized = VoiceCommandParser.normalizeForIntent(out);
         boolean afterWork = normalized.contains("despues del trabajo")
                 || normalized.contains("al terminar el trabajo")
                 || normalized.contains("cuando termine de trabajar")
@@ -19,11 +26,11 @@ public final class UserContextResolver {
                 || normalized.contains("antes de trabajar");
         boolean startWork = normalized.contains("al empezar a trabajar")
                 || normalized.contains("cuando empiece a trabajar");
-        if (!afterWork && !beforeWork && !startWork) return spoken;
+        if (!afterWork && !beforeWork && !startWork) return out;
 
         String hhmm = afterWork ? AppPrefs.workEnd(context) : AppPrefs.workStart(context);
         int[] time = parseTime(hhmm);
-        if (time == null) return spoken;
+        if (time == null) return out;
 
         int hour = time[0];
         int minute = time[1];
@@ -44,7 +51,6 @@ public final class UserContextResolver {
         String dayWord = target.getTimeInMillis() > nowMillis ? "hoy" : "mañana";
         String replacement = dayWord + " a las " + String.format(Locale.ROOT, "%02d:%02d", hour, minute);
 
-        String out = spoken;
         out = out.replaceAll("(?iu)despu[eé]s del trabajo", replacement);
         out = out.replaceAll("(?iu)al terminar el trabajo", replacement);
         out = out.replaceAll("(?iu)cuando termine de trabajar", replacement);
@@ -54,6 +60,46 @@ public final class UserContextResolver {
         out = out.replaceAll("(?iu)al empezar a trabajar", replacement);
         out = out.replaceAll("(?iu)cuando empiece a trabajar", replacement);
         return out;
+    }
+
+    private static String resolveMemoryAliases(Context context, String spoken) {
+        EventDatabase db = new EventDatabase(context.getApplicationContext());
+        List<MemoryItem> memories = db.memories();
+        db.close();
+        String out = spoken;
+        for (MemoryItem item : memories) {
+            if (item.fact != null) out = applyRoleFact(out, item.fact);
+        }
+
+        // The free-text profile can also contain simple facts such as
+        // “Yorch es mi proveedor”. Structured Memory remains the editable source of truth,
+        // but these lines make the profile useful immediately.
+        String profileContext = AppPrefs.profileContext(context);
+        if (profileContext != null && !profileContext.trim().isEmpty()) {
+            for (String fact : profileContext.split("[\\n.;]+")) {
+                out = applyRoleFact(out, fact);
+            }
+        }
+        return out;
+    }
+
+    private static String applyRoleFact(String spoken, String fact) {
+        if (fact == null || fact.trim().isEmpty()) return spoken;
+        Matcher m = ROLE_FACT.matcher(fact.trim());
+        String person = null;
+        String role = null;
+        if (m.matches()) {
+            person = m.group(1).trim();
+            role = m.group(2).trim();
+        } else {
+            Matcher reversed = ROLE_FACT_REVERSED.matcher(fact.trim());
+            if (reversed.matches()) {
+                role = reversed.group(1).trim();
+                person = reversed.group(2).trim();
+            }
+        }
+        if (person == null || role == null || person.isEmpty() || role.isEmpty()) return spoken;
+        return spoken.replaceAll("(?iu)\\bmi\\s+" + Pattern.quote(role) + "\\b", Matcher.quoteReplacement(person));
     }
 
     private static int[] parseTime(String hhmm) {

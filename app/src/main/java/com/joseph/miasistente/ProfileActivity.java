@@ -135,6 +135,14 @@ public class ProfileActivity extends Activity {
         privacy.setPadding(dp(3), dp(14), dp(3), 0);
         card.addView(privacy);
 
+        Button memory = new Button(this);
+        memory.setText("Abrir memoria de Lyra");
+        Ui.styleSoftButton(memory);
+        memory.setOnClickListener(v -> startActivity(new android.content.Intent(this, MemoryActivity.class)));
+        LinearLayout.LayoutParams memoryLp = fullWidth(52);
+        memoryLp.topMargin = dp(16);
+        card.addView(memory, memoryLp);
+
         Button save = new Button(this);
         save.setText("Guardar perfil");
         Ui.stylePrimaryButton(save);

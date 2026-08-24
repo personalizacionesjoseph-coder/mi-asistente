@@ -108,6 +108,7 @@ public final class CalendarBridge {
     }
 
     public static boolean saveToSelectedCalendar(Context context, EventDatabase db, ReminderItem item) {
+        if (item == null || item.completed || !item.canSyncToCalendar()) return false;
         if (!AppPrefs.calendarSyncEnabled(context) || !hasPermissions(context)) return false;
         long selectedCalendar = AppPrefs.calendarId(context);
         if (selectedCalendar <= 0 && item.calendarEventId <= 0) return false;
@@ -161,7 +162,7 @@ public final class CalendarBridge {
 
         List<ReminderItem> future = db.upcoming(System.currentTimeMillis());
         for (ReminderItem item : future) {
-            if (item.calendarEventId > 0) continue;
+            if (!item.canSyncToCalendar() || item.calendarEventId > 0) continue;
             if (saveToSelectedCalendar(context, db, item)) result.pushed++;
             else result.failed++;
         }

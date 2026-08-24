@@ -20,16 +20,15 @@ import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 
-import java.text.DateFormat;
 import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.Date;
-import java.util.List;
 import java.util.Locale;
 
 public class WakeWordService extends Service {
-    private static volatile boolean running = false;
     public static final String ACTION_STOP = "com.joseph.miasistente.STOP_WAKE";
+    public static final String ACTION_PAUSE = "com.joseph.miasistente.PAUSE_WAKE";
+    public static final String ACTION_RESUME = "com.joseph.miasistente.RESUME_WAKE";
+
+    private static volatile boolean running = false;
     private static final String CHANNEL_ID = "lyra_wake_word";
     private static final int NOTIFICATION_ID = 22001;
 
@@ -40,6 +39,11 @@ public class WakeWordService extends Service {
     private TextToSpeech tts;
     private boolean ttsReady = false;
     private boolean destroyed = false;
+    private boolean paused = false;
+    private boolean stoppedByUser = false;
+    private boolean usingOnDevice = false;
+    private boolean triedFallback = false;
+    private int retryCount = 0;
     private Mode mode = Mode.WAIT_WAKE;
     private String pendingVoiceText = "";
     private VoiceCommand pendingCommand;
@@ -51,11 +55,10 @@ public class WakeWordService extends Service {
         super.onCreate();
         running = true;
         createChannel();
-        startAsForeground();
-        AppPrefs.setWakeWordEnabled(this, true);
+        startAsForeground("Lyra activa", "Di “Lyra” para comenzar");
         initTts();
 
-        if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             AppPrefs.setWakeWordEnabled(this, false);
             stopSelf();
             return;
@@ -65,15 +68,33 @@ public class WakeWordService extends Service {
             stopSelf();
             return;
         }
-        scheduleWakeListening(600);
+        scheduleWakeListening(500);
     }
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent != null && ACTION_STOP.equals(intent.getAction())) {
-            AppPrefs.setWakeWordEnabled(this, false);
-            stopSelf();
-            return START_NOT_STICKY;
+        if (intent != null) {
+            String action = intent.getAction();
+            if (ACTION_STOP.equals(action)) {
+                stoppedByUser = true;
+                AppPrefs.setWakeWordEnabled(this, false);
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+            if (ACTION_PAUSE.equals(action)) {
+                paused = true;
+                destroyRecognizer();
+                updateForeground("Lyra activa", "Pausada mientras usas el micrófono");
+                return START_NOT_STICKY;
+            }
+            if (ACTION_RESUME.equals(action)) {
+                if (!AppPrefs.wakeWordEnabled(this)) return START_NOT_STICKY;
+                paused = false;
+                retryCount = 0;
+                updateForeground("Lyra activa", "Di “Lyra” para comenzar");
+                scheduleWakeListening(250);
+                return START_NOT_STICKY;
+            }
         }
         return START_NOT_STICKY;
     }
@@ -82,7 +103,6 @@ public class WakeWordService extends Service {
     public void onDestroy() {
         destroyed = true;
         running = false;
-        AppPrefs.setWakeWordEnabled(this, false);
         mainHandler.removeCallbacksAndMessages(null);
         destroyRecognizer();
         if (tts != null) {
@@ -90,6 +110,7 @@ public class WakeWordService extends Service {
             tts.shutdown();
             tts = null;
         }
+        if (stoppedByUser) AppPrefs.setWakeWordEnabled(this, false);
         super.onDestroy();
     }
 
@@ -102,7 +123,21 @@ public class WakeWordService extends Service {
         return null;
     }
 
-    private void startAsForeground() {
+    private void startAsForeground(String title, String text) {
+        Notification notification = buildNotification(title, text);
+        if (Build.VERSION.SDK_INT >= 29) {
+            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+        }
+    }
+
+    private void updateForeground(String title, String text) {
+        NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+        if (manager != null) manager.notify(NOTIFICATION_ID, buildNotification(title, text));
+    }
+
+    private Notification buildNotification(String title, String text) {
         Intent open = new Intent(this, MainActivity.class);
         PendingIntent openPending = PendingIntent.getActivity(
                 this, 22002, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -111,21 +146,16 @@ public class WakeWordService extends Service {
         PendingIntent stopPending = PendingIntent.getService(
                 this, 22003, stop, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
 
-        Notification notification = new Notification.Builder(this, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_mic)
-                .setContentTitle("Lyra activa")
-                .setContentText("Di “Lyra” para comenzar")
+        return new Notification.Builder(this, CHANNEL_ID)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle(title)
+                .setContentText(text)
                 .setContentIntent(openPending)
-                .addAction(new Notification.Action.Builder(R.drawable.ic_mic, "Detener", stopPending).build())
+                .addAction(new Notification.Action.Builder(R.drawable.ic_stop, "Detener", stopPending).build())
                 .setOngoing(true)
+                .setOnlyAlertOnce(true)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .build();
-
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE);
-        } else {
-            startForeground(NOTIFICATION_ID, notification);
-        }
     }
 
     private void createChannel() {
@@ -133,7 +163,7 @@ public class WakeWordService extends Service {
         if (manager == null) return;
         NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID, "Activación por voz de Lyra", NotificationManager.IMPORTANCE_LOW);
-        channel.setDescription("Mantiene activa la detección por voz de Lyra.");
+        channel.setDescription("Mantiene disponible la activación por voz de Lyra.");
         channel.setSound(null, null);
         manager.createNotificationChannel(channel);
     }
@@ -153,57 +183,64 @@ public class WakeWordService extends Service {
     }
 
     private void onSpeechDone(String utteranceId) {
-        if (destroyed || utteranceId == null) return;
-        if (utteranceId.startsWith("listen:")) {
-            mainHandler.postDelayed(this::startRecognitionForCurrentMode, 250);
-        } else if (utteranceId.startsWith("wake:")) {
-            scheduleWakeListening(350);
-        }
+        if (destroyed || utteranceId == null || paused) return;
+        if (utteranceId.startsWith("listen:")) mainHandler.postDelayed(this::startRecognitionForCurrentMode, 220);
+        else if (utteranceId.startsWith("wake:")) scheduleWakeListening(300);
     }
 
     private void speakThenListen(String text) {
-        ignoreRecognizerErrorsUntil = System.currentTimeMillis() + 600L;
+        ignoreRecognizerErrorsUntil = System.currentTimeMillis() + 700L;
         destroyRecognizer();
+        updateForeground("Lyra te escucha", text);
         if (ttsReady && tts != null) {
             tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "listen:" + System.currentTimeMillis());
         } else {
-            mainHandler.postDelayed(this::startRecognitionForCurrentMode, 700);
+            mainHandler.postDelayed(this::startRecognitionForCurrentMode, 650);
         }
     }
 
     private void speakThenWake(String text) {
-        ignoreRecognizerErrorsUntil = System.currentTimeMillis() + 600L;
+        ignoreRecognizerErrorsUntil = System.currentTimeMillis() + 700L;
         destroyRecognizer();
+        updateForeground("Lyra", text);
         if (ttsReady && tts != null) {
             tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "wake:" + System.currentTimeMillis());
         } else {
-            scheduleWakeListening(900);
+            scheduleWakeListening(850);
         }
     }
 
     private void scheduleWakeListening(long delayMs) {
+        if (destroyed || paused) return;
         mode = Mode.WAIT_WAKE;
         mainHandler.postDelayed(this::startRecognitionForCurrentMode, delayMs);
     }
 
     private void startRecognitionForCurrentMode() {
-        if (destroyed) return;
-        if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-            AppPrefs.setWakeWordEnabled(this, false);
-            stopSelf();
+        if (destroyed || paused) return;
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            updateForeground("Lyra", "Reconocimiento de voz no disponible");
             return;
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            AppPrefs.setWakeWordEnabled(this, false);
-            stopSelf();
+            updateForeground("Lyra", "Falta permiso de micrófono");
             return;
         }
 
         destroyRecognizer();
+        boolean onDeviceAvailable = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this);
+        usingOnDevice = onDeviceAvailable && !triedFallback;
         try {
-            recognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this);
+            recognizer = usingOnDevice
+                    ? SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+                    : SpeechRecognizer.createSpeechRecognizer(this);
         } catch (RuntimeException e) {
-            scheduleWakeListening(1200);
+            if (usingOnDevice) {
+                triedFallback = true;
+                scheduleRetry();
+            } else {
+                scheduleRetry();
+            }
             return;
         }
         recognizer.setRecognitionListener(new Listener());
@@ -211,14 +248,22 @@ public class WakeWordService extends Service {
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage());
-        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-        intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+        if (usingOnDevice) intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         try {
             recognizer.startListening(intent);
+            if (mode == Mode.WAIT_WAKE) updateForeground("Lyra activa", "Di “Lyra” para comenzar");
         } catch (RuntimeException e) {
-            scheduleWakeListening(900);
+            scheduleRetry();
         }
+    }
+
+    private void scheduleRetry() {
+        if (destroyed || paused) return;
+        retryCount = Math.min(retryCount + 1, 6);
+        long delay = Math.min(5000L, 350L * retryCount);
+        mainHandler.postDelayed(this::startRecognitionForCurrentMode, delay);
     }
 
     private void destroyRecognizer() {
@@ -231,28 +276,18 @@ public class WakeWordService extends Service {
 
     private boolean containsWakeWord(String text) {
         String n = VoiceCommandParser.normalizeForIntent(text);
-        if (n.isEmpty()) return false;
-
-        // Los reconocedores en español suelen transcribir el nombre "Lyra" como
-        // "lira". Aceptamos ambas formas, pero exigimos una palabra completa
-        // para reducir activaciones accidentales.
-        return n.matches(".*\\b(lyra|lira)\\b.*");
+        return !n.isEmpty() && n.matches(".*\\b(lyra|lira)\\b.*");
     }
 
     private boolean anyResultContainsWakeWord(ArrayList<String> matches) {
         if (matches == null) return false;
-        for (String match : matches) {
-            if (containsWakeWord(match)) return true;
-        }
+        for (String match : matches) if (containsWakeWord(match)) return true;
         return false;
     }
 
     private String recognitionLanguage() {
         Locale locale = Locale.getDefault();
-        String language = locale.getLanguage();
-        if (language != null && language.equalsIgnoreCase("es")) {
-            return locale.toLanguageTag();
-        }
+        if ("es".equalsIgnoreCase(locale.getLanguage())) return locale.toLanguageTag();
         return "es-ES";
     }
 
@@ -261,6 +296,7 @@ public class WakeWordService extends Service {
         pendingVoiceText = "";
         pendingCommand = null;
         ignoreWakeEchoUntil = System.currentTimeMillis() + 1200L;
+        retryCount = 0;
         speakThenListen("Te escucho.");
     }
 
@@ -270,7 +306,7 @@ public class WakeWordService extends Service {
             return;
         }
         String normalized = VoiceCommandParser.normalizeForIntent(spoken);
-        if (containsAny(normalized, "cancelar", "cancela", "olvidalo", "olvida eso")) {
+        if (containsAny(normalized, "cancelar", "cancela", "olvidalo", "olvida eso") && mode != Mode.WAIT_CONFIRM) {
             pendingVoiceText = "";
             pendingCommand = null;
             speakThenWake("De acuerdo. Cancelado.");
@@ -278,14 +314,14 @@ public class WakeWordService extends Service {
         }
 
         if (mode == Mode.WAIT_CONFIRM) {
-            if (containsAny(normalized, "si", "guardar", "guardalo", "confirmar", "confirmo", "dale")) {
-                savePendingCommand();
-            } else if (containsAny(normalized, "no", "cancelar", "cancela")) {
+            if (isAffirmative(normalized)) {
+                executePendingCommand();
+            } else if (isNegativeConfirmation(normalized)) {
                 pendingCommand = null;
                 pendingVoiceText = "";
-                speakThenWake("De acuerdo. No lo guardé.");
+                speakThenWake("De acuerdo. No hice cambios.");
             } else {
-                speakThenListen("Di guardar o cancelar.");
+                speakThenListen("Di confirmar o cancelar.");
             }
             return;
         }
@@ -295,26 +331,42 @@ public class WakeWordService extends Service {
         merged = UserContextResolver.enrich(this, merged, parseNow);
         VoiceCommand command = VoiceCommandParser.parse(merged, parseNow);
 
+        EventDatabase db = new EventDatabase(getApplicationContext());
         if (command.action == VoiceCommand.Action.QUERY_TODAY) {
             pendingVoiceText = "";
-            speakThenWake(agendaForDay(0, "hoy"));
+            String message = VoiceActionExecutor.agendaForDay(db, 0, "hoy");
+            db.close();
+            speakThenWake(message);
             return;
         }
         if (command.action == VoiceCommand.Action.QUERY_TOMORROW) {
             pendingVoiceText = "";
-            speakThenWake(agendaForDay(1, "mañana"));
+            String message = VoiceActionExecutor.agendaForDay(db, 1, "mañana");
+            db.close();
+            speakThenWake(message);
             return;
         }
         if (command.action == VoiceCommand.Action.QUERY_NEXT) {
             pendingVoiceText = "";
-            speakThenWake(nextEventText());
+            String message = VoiceActionExecutor.nextEventText(db);
+            db.close();
+            speakThenWake(message);
             return;
         }
-        if (command.action != VoiceCommand.Action.CREATE) {
-            speakThenListen("No entendí la instrucción. Inténtalo otra vez.");
+        if (command.action == VoiceCommand.Action.REMEMBER && command.issue.isEmpty()) {
+            VoiceActionExecutor.Result result = VoiceActionExecutor.execute(this, db, command);
+            db.close();
+            pendingVoiceText = "";
+            speakThenWake(result.message);
+            return;
+        }
+        if (command.action == VoiceCommand.Action.UNKNOWN) {
+            db.close();
+            speakThenListen("No entendí la instrucción. Inténtalo de otra forma.");
             return;
         }
         if (!command.issue.isEmpty()) {
+            db.close();
             pendingVoiceText = "";
             pendingCommand = null;
             speakThenWake(command.issue);
@@ -324,95 +376,86 @@ public class WakeWordService extends Service {
         pendingVoiceText = merged;
         pendingCommand = command;
         if (command.missingTitle) {
+            db.close();
             mode = Mode.WAIT_FOLLOWUP;
             speakThenListen("¿Qué nombre quieres ponerle?");
             return;
         }
         if (command.missingDate) {
+            db.close();
             mode = Mode.WAIT_FOLLOWUP;
-            speakThenListen("¿Para qué día?");
+            speakThenListen(command.action == VoiceCommand.Action.RESCHEDULE ? "¿Para qué día quieres moverlo?" : "¿Para qué día?");
             return;
         }
         if (command.missingTime) {
+            db.close();
             mode = Mode.WAIT_FOLLOWUP;
-            speakThenListen("¿A qué hora?");
+            speakThenListen(command.timeWasAmbiguous ? "¿De la mañana o de la tarde?" : "¿A qué hora?");
             return;
         }
 
+        pendingVoiceText = "";
+        if (VoiceActionExecutor.requiresTarget(command.action)) {
+            if (!VoiceActionExecutor.resolveTarget(db, command)) {
+                db.close();
+                pendingCommand = null;
+                speakThenWake("No encontré un pendiente que coincida con " + command.targetQuery + ".");
+                return;
+            }
+            if (command.action == VoiceCommand.Action.SNOOZE) {
+                VoiceActionExecutor.Result result = VoiceActionExecutor.execute(this, db, command);
+                db.close();
+                pendingCommand = null;
+                speakThenWake(result.message);
+                return;
+            }
+        }
+
+        pendingCommand = command;
         mode = Mode.WAIT_CONFIRM;
-        String summary = command.title + ", " + DateFormat.getDateTimeInstance(
-                DateFormat.MEDIUM, DateFormat.SHORT, new Locale("es", "ES")).format(new Date(command.eventTime));
-        speakThenListen(summary + ". ¿Lo guardo? Di guardar o cancelar.");
+        String summary = VoiceActionExecutor.confirmationSummary(db, command);
+        db.close();
+        speakThenListen(summary + ". ¿Confirmas? Di confirmar o cancelar.");
     }
 
-    private void repeatCurrentPrompt() {
-        if (mode == Mode.WAIT_CONFIRM) speakThenListen("Di guardar o cancelar.");
-        else if (pendingCommand != null && pendingCommand.missingTitle) speakThenListen("¿Qué nombre quieres ponerle?");
-        else if (pendingCommand != null && pendingCommand.missingDate) speakThenListen("¿Para qué día?");
-        else if (pendingCommand != null && pendingCommand.missingTime) speakThenListen("¿A qué hora?");
-        else speakThenListen("No te entendí. ¿Qué necesitas?");
-    }
-
-    private void savePendingCommand() {
+    private void executePendingCommand() {
         VoiceCommand command = pendingCommand;
         pendingCommand = null;
         pendingVoiceText = "";
-        if (command == null || command.eventTime <= System.currentTimeMillis()) {
-            speakThenWake("No pude guardar ese evento. Vuelve a intentarlo.");
+        if (command == null) {
+            speakThenWake("No tengo ninguna acción pendiente.");
             return;
         }
-
         EventDatabase db = new EventDatabase(getApplicationContext());
-        ReminderItem item = new ReminderItem();
-        item.kind = command.kind;
-        item.title = command.title;
-        item.notes = "";
-        item.eventTime = command.eventTime;
-        item.remindMinutes = AppPrefs.defaultReminderMinutes(this);
-        item.id = db.save(item);
-        AlarmScheduler.schedule(this, item);
-        boolean calendarSaved = CalendarBridge.saveToSelectedCalendar(this, db, item);
+        VoiceActionExecutor.Result result = VoiceActionExecutor.execute(this, db, command);
         db.close();
-
-        String confirmation = "Listo. Guardé " + item.title;
-        if (calendarSaved) confirmation += " y lo añadí a Google Calendar";
-        confirmation += ".";
-        speakThenWake(confirmation);
+        speakThenWake(result.message);
     }
 
-    private String agendaForDay(int dayOffset, String label) {
-        EventDatabase db = new EventDatabase(getApplicationContext());
-        Calendar start = Calendar.getInstance();
-        start.add(Calendar.DAY_OF_YEAR, dayOffset);
-        start.set(Calendar.HOUR_OF_DAY, 0);
-        start.set(Calendar.MINUTE, 0);
-        start.set(Calendar.SECOND, 0);
-        start.set(Calendar.MILLISECOND, 0);
-        Calendar end = (Calendar) start.clone();
-        end.add(Calendar.DAY_OF_YEAR, 1);
-        long from = dayOffset == 0 ? Math.max(System.currentTimeMillis(), start.getTimeInMillis()) : start.getTimeInMillis();
-        List<ReminderItem> items = db.between(from, end.getTimeInMillis());
-        db.close();
-        if (items.isEmpty()) return "No tienes nada pendiente para " + label + ".";
+    private void repeatCurrentPrompt() {
+        if (mode == Mode.WAIT_CONFIRM) speakThenListen("Di confirmar o cancelar.");
+        else if (pendingCommand != null && pendingCommand.missingTitle) speakThenListen("¿Qué nombre quieres ponerle?");
+        else if (pendingCommand != null && pendingCommand.missingDate) speakThenListen("¿Para qué día?");
+        else if (pendingCommand != null && pendingCommand.missingTime)
+            speakThenListen(pendingCommand.timeWasAmbiguous ? "¿De la mañana o de la tarde?" : "¿A qué hora?");
+        else speakThenListen("No te entendí. ¿Qué necesitas?");
+    }
 
-        StringBuilder text = new StringBuilder("Para ").append(label).append(" tienes ")
-                .append(items.size()).append(items.size() == 1 ? " pendiente. " : " pendientes. ");
-        int limit = Math.min(items.size(), 3);
-        for (int i = 0; i < limit; i++) {
-            ReminderItem item = items.get(i);
-            text.append(item.title).append(" a las ")
-                    .append(DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(item.eventTime))).append(". ");
+    private boolean isAffirmative(String text) {
+        return containsWholeChoice(text, "si", "guardar", "guardalo", "confirmar", "confirmo", "dale", "hazlo");
+    }
+
+    private boolean isNegativeConfirmation(String text) {
+        return containsWholeChoice(text, "no", "cancelar", "cancela", "olvidalo");
+    }
+
+    private boolean containsWholeChoice(String text, String... values) {
+        String clean = (text == null ? "" : text).replaceAll("[^a-z0-9ñ ]", " ").replaceAll("\\s+", " ").trim();
+        String padded = " " + clean + " ";
+        for (String value : values) {
+            if (padded.contains(" " + value + " ")) return true;
         }
-        return text.toString();
-    }
-
-    private String nextEventText() {
-        EventDatabase db = new EventDatabase(getApplicationContext());
-        ReminderItem item = db.nextAfter(System.currentTimeMillis());
-        db.close();
-        if (item == null) return "No tienes eventos próximos.";
-        String when = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(new Date(item.eventTime));
-        return "Lo próximo es " + item.title + ", " + when + ".";
+        return false;
     }
 
     private boolean containsAny(String text, String... values) {
@@ -429,43 +472,58 @@ public class WakeWordService extends Service {
 
         @Override
         public void onError(int error) {
-            if (destroyed) return;
+            if (destroyed || paused) return;
             if (System.currentTimeMillis() < ignoreRecognizerErrorsUntil) return;
+
+            if (usingOnDevice && !triedFallback &&
+                    (error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE || error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED
+                            || error == SpeechRecognizer.ERROR_CLIENT)) {
+                triedFallback = true;
+                scheduleRetry();
+                return;
+            }
+
             if (mode == Mode.WAIT_WAKE) {
-                scheduleWakeListening(error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY ? 1200 : 650);
+                if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) {
+                    updateForeground("Lyra", "Falta permiso de micrófono");
+                    return;
+                }
+                scheduleRetry();
             } else if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_NO_MATCH) {
                 repeatCurrentPrompt();
+            } else if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                mainHandler.postDelayed(this::startRecognitionForCurrentMode, 900);
             } else {
-                speakThenWake("Tuve un problema con el reconocimiento de voz. Inténtalo de nuevo en unos segundos.");
+                speakThenWake("Tuve un problema con el reconocimiento de voz. Inténtalo de nuevo.");
             }
         }
 
         @Override
         public void onResults(Bundle results) {
+            retryCount = 0;
             ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
             if (matches == null || matches.isEmpty()) {
-                if (mode == Mode.WAIT_WAKE) scheduleWakeListening(500); else repeatCurrentPrompt();
+                if (mode == Mode.WAIT_WAKE) scheduleWakeListening(400); else repeatCurrentPrompt();
                 return;
             }
             String first = matches.get(0);
             if (mode == Mode.WAIT_WAKE) {
-                // No depender solo de la primera hipótesis. En algunos teléfonos
-                // "Lyra/Lira" aparece como segunda o tercera alternativa.
                 if (anyResultContainsWakeWord(matches)) activateAssistant();
-                else scheduleWakeListening(300);
+                else scheduleWakeListening(220);
             } else {
-                if (System.currentTimeMillis() < ignoreWakeEchoUntil && anyResultContainsWakeWord(matches)) return;
+                if (System.currentTimeMillis() < ignoreWakeEchoUntil && anyResultContainsWakeWord(matches)) {
+                    mainHandler.postDelayed(this::startRecognitionForCurrentMode, 250);
+                    return;
+                }
                 handleCommandText(first);
             }
         }
 
         @Override
         public void onPartialResults(Bundle partialResults) {
-            if (mode != Mode.WAIT_WAKE) return;
+            if (mode != Mode.WAIT_WAKE || paused) return;
             ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-            if (anyResultContainsWakeWord(matches)) {
-                activateAssistant();
-            }
+            if (anyResultContainsWakeWord(matches)) activateAssistant();
         }
 
         @Override public void onEvent(int eventType, Bundle params) {}

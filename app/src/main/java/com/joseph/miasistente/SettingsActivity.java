@@ -88,7 +88,7 @@ public class SettingsActivity extends Activity {
         addHomeCard();
         addCalendarCard();
 
-        TextView note = text("Tu perfil se guarda localmente. El modo “Di Lyra” es experimental y usa reconocimiento de voz en el dispositivo con una notificación persistente.", 12, Ui.MUTED, false);
+        TextView note = text("Tu perfil y la memoria de Lyra se guardan localmente. La activación por voz mantiene un servicio visible porque Android exige transparencia cuando una app conserva acceso al micrófono.", 12, Ui.MUTED, false);
         note.setPadding(dp(4), dp(18), dp(4), 0);
         root.addView(note);
 
@@ -107,6 +107,14 @@ public class SettingsActivity extends Activity {
         Ui.stylePrimaryButton(edit);
         edit.setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
         card.addView(edit, fullWidth(52));
+
+        Button memory = new Button(this);
+        memory.setText("Memoria de Lyra");
+        Ui.styleSoftButton(memory);
+        memory.setOnClickListener(v -> startActivity(new Intent(this, MemoryActivity.class)));
+        LinearLayout.LayoutParams memoryLp = fullWidth(50);
+        memoryLp.topMargin = dp(9);
+        card.addView(memory, memoryLp);
         addCardToRoot(card);
     }
 
@@ -138,7 +146,7 @@ public class SettingsActivity extends Activity {
         });
         card.addView(wakeWordSwitch);
 
-        TextView warning = text("Experimental: funciona solo si Android ofrece reconocimiento en el dispositivo. Mantiene el micrófono en un servicio visible y puede consumir más batería.", 12, Ui.MUTED, false);
+        TextView warning = text("La activación usa el reconocimiento disponible en Android. Si tu teléfono ofrece reconocimiento local, Lyra lo prioriza. Android exige una notificación visible mientras el micrófono permanece disponible.", 12, Ui.MUTED, false);
         warning.setPadding(0, dp(2), 0, dp(12));
         card.addView(warning);
 
@@ -158,11 +166,11 @@ public class SettingsActivity extends Activity {
     }
 
     private void enableWakeWord() {
-        if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             setWakeSwitchSilently(false);
             new AlertDialog.Builder(this)
-                    .setTitle("No disponible en este teléfono")
-                    .setMessage("Para el modo “Di Lyra” esta versión exige reconocimiento de voz local de Android 12 o superior. Así evitamos dejar un reconocimiento remoto escuchando continuamente.")
+                    .setTitle("Reconocimiento no disponible")
+                    .setMessage("Android no tiene un servicio de reconocimiento de voz disponible en este teléfono. Puedes seguir usando el resto de Lyra sin esta función.")
                     .setPositiveButton("Entendido", null)
                     .show();
             return;
@@ -203,14 +211,14 @@ public class SettingsActivity extends Activity {
         } else if (enabled) {
             wakeStatus.setText("Activado · iniciando escucha. Si no aparece la notificación en unos segundos, apaga y vuelve a encender esta opción.");
             wakeStatus.setTextColor(Ui.MUTED);
-        } else if (Build.VERSION.SDK_INT < 31) {
-            wakeStatus.setText("No disponible: requiere Android 12 o superior para reconocimiento local.");
+        } else if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            wakeStatus.setText("Este teléfono no ofrece un servicio de reconocimiento de voz compatible.");
             wakeStatus.setTextColor(Ui.MUTED);
-        } else if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-            wakeStatus.setText("Este teléfono no ofrece reconocimiento de voz local compatible.");
+        } else if (Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+            wakeStatus.setText("Desactivado · reconocimiento local disponible en este teléfono.");
             wakeStatus.setTextColor(Ui.MUTED);
         } else {
-            wakeStatus.setText("Desactivado. Puedes seguir usando el micrófono dentro de Lyra.");
+            wakeStatus.setText("Desactivado · usará el servicio de reconocimiento configurado en Android.");
             wakeStatus.setTextColor(Ui.MUTED);
         }
     }

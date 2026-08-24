@@ -1,0 +1,28 @@
+LYRA V5 · PRUEBAS PREVIAS A ENTREGA
+Fecha: 24 ago 2026
+
+VALIDACIONES REALIZADAS
+- Parser de voz compilado con javac (Java 17 compatible).
+- 39 comprobaciones funcionales del parser: 39 correctas, 0 fallos.
+- Caso solicitado: “Quisiera agendar una cita para con el nombre de yorch mañana a las 3 de la tarde” -> “Cita con Yorch”.
+- Citas sin fecha/hora: Lyra conserva datos faltantes y pregunta en vez de inventarlos.
+- Horas ambiguas (“a las 3”): Lyra pide mañana/tarde antes de guardar.
+- Respuesta de seguimiento “10 de la mañana”: reconocida.
+- Tareas sin horario y notas sin horario: reconocidas.
+- Memoria: “recuerda que Yorch es mi proveedor”.
+- Consultas: hoy, mañana y siguiente evento.
+- Acciones: completar, cancelar, reprogramar y posponer.
+- Confirmaciones revisadas para que “sí”/“no” solo cuenten como palabras completas.
+- Migración SQL v2 -> v4 simulada: conserva eventos anteriores y crea las columnas/tablas nuevas.
+- Todos los XML del proyecto analizados: 0 errores de sintaxis.
+- Referencias a drawables verificadas: 0 recursos faltantes.
+- Componentes declarados en AndroidManifest.xml verificados: 0 clases faltantes.
+- Iconos launcher comprobados en mdpi/hdpi/xhdpi/xxhdpi/xxxhdpi.
+- Búsqueda global de ejemplos anteriores: 0 coincidencias. Todos los ejemplos actuales usan “Yorch”.
+- Revisión de sintaxis Java completa con javac sin Android SDK: no aparecieron errores de estructura Java (los errores restantes son únicamente imports/símbolos Android ausentes en este entorno).
+
+LIMITACIÓN DE VERIFICACIÓN
+Este entorno no contiene el Android SDK, por lo que no se pudo ejecutar aquí el build Android real ni instalar la APK en un dispositivo. El repositorio incluye GitHub Actions para realizar esa compilación con Android SDK 36. El resultado esperado del workflow es el artefacto “Lyra-V5-APK”.
+
+WAKE WORD
+La activación “Lyra/Lira” fue reforzada con resultados parciales, alternativas, fallback al reconocedor del sistema, recuperación de errores y coordinación con el micrófono manual. Sigue basada en SpeechRecognizer de Android, por lo que la escucha permanente debe considerarse experimental hasta sustituirla por un motor dedicado de wake word en una versión comercial.

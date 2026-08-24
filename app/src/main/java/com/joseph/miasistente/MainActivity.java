@@ -41,12 +41,11 @@ public class MainActivity extends Activity {
 
     private EventDatabase db;
     private LinearLayout agendaContainer;
-    private TextView agendaSubtitle;
+    private LinearLayout attentionContainer;
+    private TextView heroNext;
+    private TextView heroStats;
     private TextView voiceStatus;
     private ImageButton micButton;
-    private Button todayTab;
-    private Button upcomingTab;
-    private boolean showToday = true;
     private String appearanceSignature;
 
     private SpeechRecognizer speechRecognizer;
@@ -55,11 +54,14 @@ public class MainActivity extends Activity {
     private TextToSpeech textToSpeech;
     private boolean ttsReady = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
     private String pendingVoiceText = "";
     private VoiceCommand pendingVoiceCommand;
     private VoiceCommand pendingConfirmation;
     private AlertDialog voiceConfirmDialog;
     private boolean autoStartFromAssist = false;
+    private boolean manualVoiceSession = false;
+    private long voiceFinishDeadline = 0L;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -83,17 +85,17 @@ public class MainActivity extends Activity {
             recreate();
             return;
         }
-        refreshAgenda();
+        refreshDashboard();
         pullCalendarChanges();
         ensureWakeServiceIfEnabled();
         mainHandler.postDelayed(() -> {
             if (voiceStatus != null && pendingVoiceText.isEmpty() && pendingConfirmation == null) {
                 voiceStatus.setText(defaultVoiceHint());
             }
-        }, 350);
+        }, 250);
         if (autoStartFromAssist) {
             autoStartFromAssist = false;
-            mainHandler.postDelayed(this::startVoiceRecognition, 450);
+            mainHandler.postDelayed(this::startVoiceRecognition, 400);
         }
     }
 
@@ -101,14 +103,12 @@ public class MainActivity extends Activity {
     protected void onDestroy() {
         mainHandler.removeCallbacksAndMessages(null);
         if (voiceConfirmDialog != null) voiceConfirmDialog.dismiss();
-        if (speechRecognizer != null) {
-            speechRecognizer.destroy();
-            speechRecognizer = null;
-        }
+        destroySpeechRecognizer();
         if (textToSpeech != null) {
             textToSpeech.stop();
             textToSpeech.shutdown();
         }
+        if (manualVoiceSession) resumeWakeService();
         if (db != null) db.close();
         super.onDestroy();
     }
@@ -120,11 +120,12 @@ public class MainActivity extends Activity {
 
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(20), dp(18), dp(20), dp(34));
+        root.setPadding(dp(20), dp(18), dp(20), dp(36));
         scroll.addView(root, new ScrollView.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         addHeader(root);
+        addTodayHero(root);
 
         List<String> order = AppPrefs.homeOrder(this);
         for (String section : order) {
@@ -156,8 +157,8 @@ public class MainActivity extends Activity {
         copy.addView(eyebrow);
 
         TextView title = new TextView(this);
-        title.setText("Lyra");
-        title.setTextSize(30);
+        title.setText("Hoy con Lyra");
+        title.setTextSize(29);
         title.setTextColor(Ui.TEXT);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         copy.addView(title);
@@ -179,370 +180,323 @@ public class MainActivity extends Activity {
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
         header.addView(settings, new LinearLayout.LayoutParams(dp(50), dp(50)));
         root.addView(header);
-
-        LinearLayout statusRow = new LinearLayout(this);
-        statusRow.setOrientation(LinearLayout.HORIZONTAL);
-        statusRow.setPadding(0, dp(16), 0, dp(2));
-        statusRow.addView(statusChip("●  " + todayCount() + " hoy", Ui.PRIMARY_SOFT, Ui.PRIMARY));
-        if (AppPrefs.calendarSyncEnabled(this) && AppPrefs.calendarId(this) > 0) {
-            TextView calendarChip = statusChip("✓  Calendar", Ui.SURFACE, Ui.MUTED);
-            calendarChip.setContentDescription("Calendario sincronizado. Toca para configurar.");
-            calendarChip.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
-            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
-            lp.leftMargin = dp(8);
-            statusRow.addView(calendarChip, lp);
-        }
-        root.addView(statusRow);
     }
 
-    private int todayCount() {
-        Calendar end = Calendar.getInstance();
-        end.add(Calendar.DAY_OF_YEAR, 1);
-        end.set(Calendar.HOUR_OF_DAY, 0);
-        end.set(Calendar.MINUTE, 0);
-        end.set(Calendar.SECOND, 0);
-        end.set(Calendar.MILLISECOND, 0);
-        return db.between(System.currentTimeMillis(), end.getTimeInMillis()).size();
-    }
+    private void addTodayHero(LinearLayout root) {
+        LinearLayout hero = new LinearLayout(this);
+        hero.setOrientation(LinearLayout.VERTICAL);
+        hero.setPadding(dp(18), dp(17), dp(18), dp(17));
+        hero.setBackground(Ui.gradient(Ui.PRIMARY, Ui.PRIMARY_DARK, 24, this));
+        LinearLayout.LayoutParams heroLp = matchWrap();
+        heroLp.topMargin = dp(18);
+        root.addView(hero, heroLp);
 
-    private TextView statusChip(String text, int bg, int fg) {
-        TextView chip = new TextView(this);
-        chip.setText(text);
-        chip.setTextSize(12);
-        chip.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        chip.setTextColor(fg);
-        chip.setGravity(Gravity.CENTER);
-        chip.setPadding(dp(12), 0, dp(12), 0);
-        chip.setBackground(Ui.roundedStroke(bg, Ui.BORDER, 1, 17, this));
-        return chip;
+        TextView label = new TextView(this);
+        label.setText("SIGUIENTE");
+        label.setTextSize(10);
+        label.setLetterSpacing(0.09f);
+        label.setTextColor(Color.argb(220, 255, 255, 255));
+        label.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        hero.addView(label);
+
+        heroNext = new TextView(this);
+        heroNext.setTextSize(20);
+        heroNext.setTextColor(Color.WHITE);
+        heroNext.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        heroNext.setPadding(0, dp(7), 0, dp(5));
+        hero.addView(heroNext);
+
+        heroStats = new TextView(this);
+        heroStats.setTextSize(13);
+        heroStats.setTextColor(Color.argb(225, 255, 255, 255));
+        hero.addView(heroStats);
     }
 
     private void addVoiceSection(LinearLayout root) {
         LinearLayout voiceCard = new LinearLayout(this);
-        voiceCard.setOrientation(LinearLayout.VERTICAL);
-        voiceCard.setGravity(Gravity.CENTER_HORIZONTAL);
-        voiceCard.setPadding(dp(20), dp(18), dp(20), dp(18));
-        voiceCard.setBackground(Ui.gradient(Ui.PRIMARY, Ui.PRIMARY_DARK, 26, this));
-        voiceCard.setElevation(dp(2));
+        voiceCard.setOrientation(LinearLayout.HORIZONTAL);
+        voiceCard.setGravity(Gravity.CENTER_VERTICAL);
+        voiceCard.setPadding(dp(16), dp(14), dp(16), dp(14));
+        voiceCard.setBackground(Ui.roundedStroke(Ui.SURFACE, Ui.BORDER, 1, 22, this));
         root.addView(voiceCard, sectionParams());
-
-        TextView badge = new TextView(this);
-        badge.setText("LYRA · ASISTENTE DE VOZ");
-        badge.setTextSize(10);
-        badge.setLetterSpacing(0.08f);
-        badge.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        badge.setTextColor(Color.argb(235, 255, 255, 255));
-        badge.setGravity(Gravity.CENTER);
-        badge.setPadding(dp(12), dp(5), dp(12), dp(5));
-        badge.setBackground(Ui.rounded(Color.argb(35, 255, 255, 255), 13, this));
-        voiceCard.addView(badge);
-
-        TextView ask = new TextView(this);
-        ask.setText("¿Qué necesitas?");
-        ask.setTextSize(21);
-        ask.setTextColor(Color.WHITE);
-        ask.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        ask.setGravity(Gravity.CENTER);
-        ask.setPadding(0, dp(12), 0, dp(3));
-        voiceCard.addView(ask);
-
-        TextView helper = new TextView(this);
-        helper.setText(AppPrefs.wakeWordEnabled(this)
-                ? "Di “Lyra” o toca el micrófono"
-                : "Toca el micrófono para hablar");
-        helper.setTextSize(13);
-        helper.setTextColor(Color.argb(220, 255, 255, 255));
-        helper.setGravity(Gravity.CENTER);
-        helper.setPadding(dp(6), 0, dp(6), dp(13));
-        voiceCard.addView(helper);
 
         micButton = new ImageButton(this);
         micButton.setImageResource(R.drawable.ic_mic);
-        micButton.setColorFilter(Ui.PRIMARY);
-        micButton.setBackground(Ui.rounded(Color.WHITE, 32, this));
+        micButton.setColorFilter(Color.WHITE);
         micButton.setPadding(dp(16), dp(16), dp(16), dp(16));
+        micButton.setBackground(Ui.rounded(Ui.PRIMARY, 26, this));
         micButton.setContentDescription("Hablar con Lyra");
         micButton.setOnClickListener(v -> startVoiceRecognition());
-        micButton.setElevation(dp(3));
-        voiceCard.addView(micButton, new LinearLayout.LayoutParams(dp(64), dp(64)));
+        voiceCard.addView(micButton, new LinearLayout.LayoutParams(dp(58), dp(58)));
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(dp(14), 0, 0, 0);
+
+        TextView title = new TextView(this);
+        title.setText("¿Qué necesitas?");
+        title.setTextSize(17);
+        title.setTextColor(Ui.TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        copy.addView(title);
 
         voiceStatus = new TextView(this);
         voiceStatus.setText(defaultVoiceHint());
-        voiceStatus.setTextSize(12);
-        voiceStatus.setTextColor(Color.argb(225, 255, 255, 255));
-        voiceStatus.setGravity(Gravity.CENTER);
-        voiceStatus.setPadding(dp(4), dp(12), dp(4), 0);
-        voiceCard.addView(voiceStatus, matchWrap());
+        voiceStatus.setTextSize(13);
+        voiceStatus.setTextColor(Ui.MUTED);
+        voiceStatus.setPadding(0, dp(3), 0, 0);
+        copy.addView(voiceStatus);
+        voiceCard.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
     }
 
     private void addQuickSection(LinearLayout root) {
-        TextView label = Ui.label(this, "ACCIONES RÁPIDAS");
-        LinearLayout.LayoutParams labelLp = sectionParams();
-        labelLp.bottomMargin = dp(9);
-        root.addView(label, labelLp);
+        TextView section = Ui.label(this, "CAPTURA RÁPIDA");
+        section.setPadding(0, dp(22), 0, dp(9));
+        root.addView(section);
 
-        LinearLayout quickRow = new LinearLayout(this);
-        quickRow.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout row1 = new LinearLayout(this);
+        row1.setOrientation(LinearLayout.HORIZONTAL);
+        root.addView(row1, matchWrap());
+        addQuickButton(row1, "Cita", R.drawable.ic_calendar, "Cita", false);
+        addQuickButton(row1, "Recordatorio", R.drawable.ic_reminder, "Recordatorio", true);
 
-        Button newAppointment = new Button(this);
-        newAppointment.setText("Nueva cita");
-        Ui.styleSecondaryButton(newAppointment);
-        setButtonIcon(newAppointment, R.drawable.ic_add, Ui.TEXT);
-        newAppointment.setOnClickListener(v -> quickCreate("Cita"));
-        quickRow.addView(newAppointment, new LinearLayout.LayoutParams(0, dp(56), 1f));
+        LinearLayout row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout.LayoutParams row2Lp = matchWrap();
+        row2Lp.topMargin = dp(9);
+        root.addView(row2, row2Lp);
+        addQuickButton(row2, "Tarea", R.drawable.ic_task, "Tarea", false);
+        addQuickButton(row2, "Nota", R.drawable.ic_note, "Nota", true);
+    }
 
-        Button newReminder = new Button(this);
-        newReminder.setText("Recordatorio");
-        Ui.stylePrimaryButton(newReminder);
-        setButtonIcon(newReminder, R.drawable.ic_reminder, Color.WHITE);
-        newReminder.setOnClickListener(v -> quickCreate("Recordatorio"));
-        LinearLayout.LayoutParams reminderLp = new LinearLayout.LayoutParams(0, dp(56), 1f);
-        reminderLp.leftMargin = dp(10);
-        quickRow.addView(newReminder, reminderLp);
-        root.addView(quickRow);
+    private void addQuickButton(LinearLayout row, String label, int icon, String kind, boolean second) {
+        Button button = new Button(this);
+        button.setText(label);
+        Ui.styleSecondaryButton(button);
+        setButtonIcon(button, icon, Ui.PRIMARY);
+        button.setGravity(Gravity.CENTER);
+        button.setOnClickListener(v -> openNew(kind));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, dp(56), 1f);
+        if (second) lp.leftMargin = dp(9);
+        row.addView(button, lp);
     }
 
     private void addAgendaSection(LinearLayout root) {
-        LinearLayout agendaHeader = new LinearLayout(this);
-        agendaHeader.setOrientation(LinearLayout.VERTICAL);
-        root.addView(agendaHeader, sectionParams());
+        TextView section = Ui.label(this, "TU DÍA");
+        section.setPadding(0, dp(22), 0, dp(9));
+        root.addView(section);
 
-        TextView agendaTitle = new TextView(this);
-        agendaTitle.setText("Tu agenda");
-        agendaTitle.setTextSize(23);
-        agendaTitle.setTextColor(Ui.TEXT);
-        agendaTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        agendaHeader.addView(agendaTitle);
-
-        agendaSubtitle = new TextView(this);
-        agendaSubtitle.setTextSize(13);
-        agendaSubtitle.setTextColor(Ui.MUTED);
-        agendaSubtitle.setPadding(0, dp(3), 0, dp(12));
-        agendaHeader.addView(agendaSubtitle);
-
-        LinearLayout tabs = new LinearLayout(this);
-        tabs.setOrientation(LinearLayout.HORIZONTAL);
-
-        todayTab = new Button(this);
-        todayTab.setText("Hoy");
-        todayTab.setAllCaps(false);
-        todayTab.setOnClickListener(v -> {
-            showToday = true;
-            updateTabs();
-            refreshAgenda();
-        });
-        tabs.addView(todayTab, new LinearLayout.LayoutParams(0, dp(44), 1f));
-
-        upcomingTab = new Button(this);
-        upcomingTab.setText("Próximos");
-        upcomingTab.setAllCaps(false);
-        upcomingTab.setOnClickListener(v -> {
-            showToday = false;
-            updateTabs();
-            refreshAgenda();
-        });
-        LinearLayout.LayoutParams upcomingLp = new LinearLayout.LayoutParams(0, dp(44), 1f);
-        upcomingLp.leftMargin = dp(8);
-        tabs.addView(upcomingTab, upcomingLp);
-        root.addView(tabs);
-        updateTabs();
+        attentionContainer = new LinearLayout(this);
+        attentionContainer.setOrientation(LinearLayout.VERTICAL);
+        root.addView(attentionContainer, matchWrap());
 
         agendaContainer = new LinearLayout(this);
         agendaContainer.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams containerLp = matchWrap();
-        containerLp.topMargin = dp(12);
-        root.addView(agendaContainer, containerLp);
+        LinearLayout.LayoutParams agendaLp = matchWrap();
+        agendaLp.topMargin = dp(10);
+        root.addView(agendaContainer, agendaLp);
+
+        refreshDashboard();
+    }
+
+    private void refreshDashboard() {
+        refreshHero();
+        refreshAttention();
         refreshAgenda();
     }
 
-    private void updateTabs() {
-        if (todayTab == null || upcomingTab == null) return;
-        styleTab(todayTab, showToday);
-        styleTab(upcomingTab, !showToday);
+    private void refreshHero() {
+        if (heroNext == null || heroStats == null) return;
+        ReminderItem next = db.nextAfter(System.currentTimeMillis());
+        if (next == null) {
+            heroNext.setText("Tu agenda está despejada");
+        } else {
+            heroNext.setText(next.title + " · " + relativeWhen(next.eventTime));
+        }
+
+        Calendar end = startOfTomorrow();
+        int today = db.between(System.currentTimeMillis(), end.getTimeInMillis()).size();
+        int tasks = db.activeTasks().size();
+        int unscheduled = db.activeUnscheduled().size();
+        String stats = countText(today, "evento hoy", "eventos hoy") + " · "
+                + countText(tasks, "tarea pendiente", "tareas pendientes");
+        if (unscheduled > 0) stats += " · " + unscheduled + " sin hora";
+        heroStats.setText(stats);
     }
 
-    private void styleTab(Button button, boolean selected) {
-        button.setTextSize(14);
-        button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        button.setTextColor(selected ? Color.WHITE : Ui.MUTED);
-        button.setBackground(selected
-                ? Ui.rounded(Ui.PRIMARY, 14, this)
-                : Ui.roundedStroke(Ui.SURFACE, Ui.BORDER, 1, 14, this));
+    private void refreshAttention() {
+        if (attentionContainer == null) return;
+        attentionContainer.removeAllViews();
+        List<ReminderItem> unscheduled = db.activeUnscheduled();
+        List<ReminderItem> attention = new ArrayList<>();
+        for (ReminderItem item : unscheduled) {
+            if (!"Nota".equals(item.kind)) attention.add(item);
+            if (attention.size() >= 3) break;
+        }
+        if (attention.isEmpty()) return;
+
+        TextView title = new TextView(this);
+        title.setText("Necesita atención");
+        title.setTextSize(19);
+        title.setTextColor(Ui.TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        attentionContainer.addView(title);
+
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Pendientes sin fecha u hora");
+        subtitle.setTextSize(13);
+        subtitle.setTextColor(Ui.MUTED);
+        subtitle.setPadding(0, dp(2), 0, dp(8));
+        attentionContainer.addView(subtitle);
+
+        for (ReminderItem item : attention) attentionContainer.addView(itemCard(item, true), cardLayoutParams(true));
     }
 
     private void refreshAgenda() {
-        if (agendaContainer == null || agendaSubtitle == null) return;
-        long now = System.currentTimeMillis();
-        List<ReminderItem> items;
-        if (showToday) {
-            Calendar end = Calendar.getInstance();
-            end.setTimeInMillis(now);
-            end.add(Calendar.DAY_OF_YEAR, 1);
-            end.set(Calendar.HOUR_OF_DAY, 0);
-            end.set(Calendar.MINUTE, 0);
-            end.set(Calendar.SECOND, 0);
-            end.set(Calendar.MILLISECOND, 0);
-            items = db.between(now, end.getTimeInMillis());
-            agendaSubtitle.setText(items.isEmpty() ? "Nada pendiente para hoy" : countText(items.size(), "pendiente", "pendientes") + " hoy");
-        } else {
-            items = db.upcoming(now);
-            agendaSubtitle.setText(items.isEmpty() ? "No tienes eventos próximos" : countText(items.size(), "evento próximo", "eventos próximos"));
-        }
-
+        if (agendaContainer == null) return;
         agendaContainer.removeAllViews();
-        if (items.isEmpty()) {
-            LinearLayout emptyCard = new LinearLayout(this);
-            emptyCard.setOrientation(LinearLayout.VERTICAL);
-            emptyCard.setGravity(Gravity.CENTER);
-            emptyCard.setPadding(dp(22), dp(22), dp(22), dp(20));
-            emptyCard.setBackground(Ui.roundedStroke(Ui.SURFACE, Ui.BORDER, 1, 22, this));
 
+        Calendar endToday = startOfTomorrow();
+        List<ReminderItem> today = db.between(System.currentTimeMillis(), endToday.getTimeInMillis());
+        List<ReminderItem> upcoming = db.upcoming(endToday.getTimeInMillis());
+        List<ReminderItem> notes = db.recentNotes(2);
+
+        TextView heading = new TextView(this);
+        heading.setText("Agenda de hoy");
+        heading.setTextSize(22);
+        heading.setTextColor(Ui.TEXT);
+        heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        agendaContainer.addView(heading);
+
+        if (today.isEmpty()) {
+            LinearLayout empty = new LinearLayout(this);
+            empty.setOrientation(LinearLayout.VERTICAL);
+            empty.setPadding(dp(18), dp(18), dp(18), dp(18));
+            empty.setBackground(Ui.roundedStroke(Ui.SURFACE, Ui.BORDER, 1, 20, this));
             TextView emptyTitle = new TextView(this);
-            emptyTitle.setText(showToday ? "Nada pendiente hoy" : "Sin eventos próximos");
-            emptyTitle.setTextSize(16);
+            emptyTitle.setText("Nada pendiente con hora para hoy");
+            emptyTitle.setTextSize(15);
             emptyTitle.setTextColor(Ui.TEXT);
             emptyTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            emptyTitle.setGravity(Gravity.CENTER);
-            emptyCard.addView(emptyTitle);
-
-            TextView emptyText = new TextView(this);
-            emptyText.setText(showToday
-                    ? "Tu agenda está libre por ahora."
-                    : "Tus próximas citas y recordatorios aparecerán aquí.");
-            emptyText.setTextSize(13);
-            emptyText.setTextColor(Ui.MUTED);
-            emptyText.setGravity(Gravity.CENTER);
-            emptyText.setPadding(0, dp(4), 0, dp(14));
-            emptyCard.addView(emptyText);
-
-            Button emptyAction = new Button(this);
-            emptyAction.setText(showToday ? "Crear recordatorio" : "Nueva cita");
-            Ui.styleSoftButton(emptyAction);
-            emptyAction.setOnClickListener(v -> quickCreate(showToday ? "Recordatorio" : "Cita"));
-            emptyCard.addView(emptyAction, new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)));
-
-            agendaContainer.addView(emptyCard, matchWrap());
-            return;
+            TextView emptyBody = new TextView(this);
+            emptyBody.setText("Puedes crear algo o pedírselo a Lyra por voz.");
+            emptyBody.setTextSize(13);
+            emptyBody.setTextColor(Ui.MUTED);
+            emptyBody.setPadding(0, dp(4), 0, 0);
+            empty.addView(emptyTitle);
+            empty.addView(emptyBody);
+            agendaContainer.addView(empty, cardLayoutParams(true));
+        } else {
+            for (ReminderItem item : today) agendaContainer.addView(itemCard(item, false), cardLayoutParams(true));
         }
 
-        int limit = Math.min(items.size(), 20);
-        for (int i = 0; i < limit; i++) {
-            agendaContainer.addView(eventCard(items.get(i)), cardLayoutParams(i > 0));
+        if (!upcoming.isEmpty()) {
+            TextView nextTitle = Ui.label(this, "PRÓXIMOS");
+            nextTitle.setPadding(0, dp(20), 0, dp(8));
+            agendaContainer.addView(nextTitle);
+            int limit = Math.min(5, upcoming.size());
+            for (int i = 0; i < limit; i++) agendaContainer.addView(itemCard(upcoming.get(i), false), cardLayoutParams(i > 0));
+        }
+
+        if (!notes.isEmpty()) {
+            TextView notesTitle = Ui.label(this, "NOTAS RECIENTES");
+            notesTitle.setPadding(0, dp(20), 0, dp(8));
+            agendaContainer.addView(notesTitle);
+            for (int i = 0; i < notes.size(); i++) agendaContainer.addView(itemCard(notes.get(i), false), cardLayoutParams(i > 0));
         }
     }
 
-    private View eventCard(ReminderItem item) {
+    private View itemCard(ReminderItem item, boolean attention) {
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.HORIZONTAL);
         card.setGravity(Gravity.CENTER_VERTICAL);
-        card.setPadding(dp(14), dp(14), dp(15), dp(14));
-        Ui.card(card);
-        card.setOnClickListener(v -> edit(item));
+        card.setPadding(dp(15), dp(13), dp(12), dp(13));
+        card.setBackground(Ui.roundedStroke(attention ? Ui.PRIMARY_SOFT : Ui.SURFACE, Ui.BORDER, 1, 19, this));
+        card.setOnClickListener(v -> openEdit(item.id));
         card.setOnLongClickListener(v -> {
-            showEventMenu(item);
+            confirmDelete(item);
             return true;
         });
 
-        View accent = new View(this);
-        accent.setBackground(Ui.rounded(Ui.PRIMARY, 3, this));
-        card.addView(accent, new LinearLayout.LayoutParams(dp(5), dp(60)));
+        TextView icon = new TextView(this);
+        icon.setText(kindGlyph(item.kind));
+        icon.setGravity(Gravity.CENTER);
+        icon.setTextSize(17);
+        icon.setTextColor(Ui.PRIMARY);
+        icon.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        icon.setBackground(Ui.rounded(Ui.PRIMARY_SOFT, 18, this));
+        card.addView(icon, new LinearLayout.LayoutParams(dp(40), dp(40)));
 
-        LinearLayout timeBox = new LinearLayout(this);
-        timeBox.setOrientation(LinearLayout.VERTICAL);
-        timeBox.setGravity(Gravity.CENTER);
-        timeBox.setPadding(dp(8), dp(7), dp(8), dp(7));
-        timeBox.setBackground(Ui.rounded(Ui.PRIMARY_SOFT, 16, this));
-        LinearLayout.LayoutParams timeBoxLp = new LinearLayout.LayoutParams(dp(76), dp(66));
-        timeBoxLp.leftMargin = dp(11);
-        card.addView(timeBox, timeBoxLp);
-
-        TextView time = new TextView(this);
-        time.setText(new SimpleDateFormat("h:mm", Locale.getDefault()).format(new Date(item.eventTime)));
-        time.setTextSize(17);
-        time.setTextColor(Ui.PRIMARY);
-        time.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        time.setGravity(Gravity.CENTER);
-        timeBox.addView(time);
-
-        TextView ampm = new TextView(this);
-        ampm.setText(new SimpleDateFormat("a", Locale.getDefault()).format(new Date(item.eventTime)));
-        ampm.setTextSize(10);
-        ampm.setTextColor(Ui.PRIMARY);
-        ampm.setGravity(Gravity.CENTER);
-        timeBox.addView(ampm);
-
-        LinearLayout info = new LinearLayout(this);
-        info.setOrientation(LinearLayout.VERTICAL);
-        info.setPadding(dp(13), 0, 0, 0);
-
-        TextView kind = new TextView(this);
-        kind.setText(item.kind.toUpperCase(Locale.getDefault()) + (item.calendarEventId > 0 ? "  ·  GOOGLE" : ""));
-        kind.setTextSize(10);
-        kind.setLetterSpacing(0.06f);
-        kind.setTextColor(Ui.PRIMARY);
-        kind.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        info.addView(kind);
-
-        TextView itemTitle = new TextView(this);
-        itemTitle.setText(item.title);
-        itemTitle.setTextSize(16);
-        itemTitle.setTextColor(Ui.TEXT);
-        itemTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        itemTitle.setPadding(0, dp(3), 0, dp(4));
-        info.addView(itemTitle);
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        copy.setPadding(dp(12), 0, dp(8), 0);
+        TextView title = new TextView(this);
+        title.setText(item.title);
+        title.setTextSize(15);
+        title.setTextColor(Ui.TEXT);
+        title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        copy.addView(title);
 
         TextView meta = new TextView(this);
-        String dateText = new SimpleDateFormat("EEE d MMM", new Locale("es", "ES")).format(new Date(item.eventTime));
-        String alertText = item.remindMinutes < 0 ? "sin aviso" : reminderLabel(item.remindMinutes);
-        meta.setText(dateText + "  ·  " + alertText);
+        String metaText;
+        if (item.isScheduled()) metaText = item.kind + " · " + relativeWhen(item.eventTime);
+        else metaText = item.kind + " · sin fecha";
+        meta.setText(metaText);
         meta.setTextSize(12);
         meta.setTextColor(Ui.MUTED);
-        info.addView(meta);
+        meta.setPadding(0, dp(3), 0, 0);
+        copy.addView(meta);
+        card.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        card.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        if ("Tarea".equals(item.kind)) {
+            Button done = new Button(this);
+            done.setText("✓");
+            done.setContentDescription("Marcar tarea como hecha");
+            done.setTextColor(Ui.PRIMARY);
+            done.setTextSize(18);
+            done.setBackground(Ui.rounded(Ui.PRIMARY_SOFT, 18, this));
+            done.setOnClickListener(v -> {
+                db.markCompleted(item.id, true);
+                AlarmScheduler.cancel(this, item.id);
+                refreshDashboard();
+            });
+            card.addView(done, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        }
         return card;
     }
 
-    private void showEventMenu(ReminderItem item) {
-        new AlertDialog.Builder(this)
-                .setTitle(item.title)
-                .setItems(new String[]{"Editar", "Eliminar"}, (dialog, which) -> {
-                    if (which == 0) edit(item);
-                    else confirmDelete(item);
-                })
-                .show();
+    private String kindGlyph(String kind) {
+        if ("Cita".equals(kind)) return "C";
+        if ("Tarea".equals(kind)) return "T";
+        if ("Nota".equals(kind)) return "N";
+        return "R";
+    }
+
+    private void openNew(String kind) {
+        Intent intent = new Intent(this, EditorActivity.class);
+        intent.putExtra("prefill_kind", kind);
+        intent.putExtra("prefill_has_time", "Cita".equals(kind) || "Recordatorio".equals(kind));
+        startActivity(intent);
+    }
+
+    private void openEdit(long id) {
+        Intent intent = new Intent(this, EditorActivity.class);
+        intent.putExtra("reminder_id", id);
+        startActivity(intent);
     }
 
     private void confirmDelete(ReminderItem item) {
-        String extra = item.calendarEventId > 0 ? " También se eliminará del calendario vinculado." : "";
         new AlertDialog.Builder(this)
-                .setTitle("Eliminar")
-                .setMessage("¿Eliminar \"" + item.title + "\"?" + extra)
+                .setTitle("Eliminar " + item.kind.toLowerCase(Locale.ROOT))
+                .setMessage("¿Quieres eliminar “" + item.title + "”?")
                 .setNegativeButton("Cancelar", null)
-                .setPositiveButton("Eliminar", (dialog, which) -> {
+                .setPositiveButton("Eliminar", (d, w) -> {
                     AlarmScheduler.cancel(this, item.id);
-                    boolean calendarDeleted = item.calendarEventId <= 0 || CalendarBridge.deleteLinkedEvent(this, item);
+                    if (item.calendarEventId > 0) CalendarBridge.deleteLinkedEvent(this, item);
                     db.delete(item.id);
-                    refreshAgenda();
-                    if (!calendarDeleted) {
-                        Toast.makeText(this, "Se eliminó de la app, pero no pude borrarlo de Google Calendar.", Toast.LENGTH_LONG).show();
-                    }
+                    refreshDashboard();
                 })
                 .show();
-    }
-
-    private void edit(ReminderItem item) {
-        Intent intent = new Intent(this, EditorActivity.class);
-        intent.putExtra("reminder_id", item.id);
-        startActivity(intent);
-    }
-
-    private void quickCreate(String kind) {
-        Intent intent = new Intent(this, EditorActivity.class);
-        intent.putExtra("prefill_kind", kind);
-        startActivity(intent);
     }
 
     private void startVoiceRecognition() {
@@ -550,75 +504,107 @@ public class MainActivity extends Activity {
             requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
             return;
         }
-        fallbackTried = false;
-        startVoiceRecognitionInternal(true);
-    }
-
-    private void startVoiceRecognitionInternal(boolean preferOnDevice) {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             showTemporaryVoiceMessage("Este teléfono no tiene un servicio de reconocimiento de voz disponible.");
             return;
         }
+        pauseWakeService();
+        manualVoiceSession = true;
+        fallbackTried = false;
+        boolean canUseOnDevice = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this);
+        startVoiceRecognitionInternal(canUseOnDevice);
+    }
 
-        if (speechRecognizer != null) {
-            speechRecognizer.destroy();
-            speechRecognizer = null;
-        }
-
-        usingOnDeviceRecognizer = false;
-        if (preferOnDevice && Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-            try {
-                speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this);
-                usingOnDeviceRecognizer = true;
-            } catch (UnsupportedOperationException ignored) {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+    private void startVoiceRecognitionInternal(boolean onDevice) {
+        destroySpeechRecognizer();
+        usingOnDeviceRecognizer = onDevice;
+        try {
+            speechRecognizer = onDevice
+                    ? SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
+                    : SpeechRecognizer.createSpeechRecognizer(this);
+        } catch (RuntimeException e) {
+            if (onDevice && !fallbackTried) {
+                fallbackTried = true;
+                startVoiceRecognitionInternal(false);
+                return;
             }
-        } else {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+            finishVoiceSession();
+            showTemporaryVoiceMessage("No pude iniciar el reconocimiento de voz.");
+            return;
         }
-
         speechRecognizer.setRecognitionListener(new AssistantRecognitionListener());
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-ES");
-        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage());
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
-        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "¿Qué necesitas?");
+        if (onDevice) intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
+        try {
+            setListeningUi(true, "Te escucho…");
+            speechRecognizer.startListening(intent);
+        } catch (RuntimeException e) {
+            if (onDevice && !fallbackTried) {
+                fallbackTried = true;
+                startVoiceRecognitionInternal(false);
+            } else {
+                finishVoiceSession();
+                showTemporaryVoiceMessage("El micrófono está ocupado. Inténtalo de nuevo.");
+            }
+        }
+    }
 
-        setListeningUi(true, "Te escucho…");
-        speechRecognizer.startListening(intent);
+    private void destroySpeechRecognizer() {
+        if (speechRecognizer != null) {
+            try { speechRecognizer.cancel(); } catch (Exception ignored) {}
+            try { speechRecognizer.destroy(); } catch (Exception ignored) {}
+            speechRecognizer = null;
+        }
+    }
+
+    private String recognitionLanguage() {
+        Locale locale = Locale.getDefault();
+        if ("es".equalsIgnoreCase(locale.getLanguage())) return locale.toLanguageTag();
+        return "es-ES";
     }
 
     private void handleVoiceText(String spoken) {
-        setListeningUi(false, "Escuché: “" + spoken + "”");
+        if (spoken == null || spoken.trim().isEmpty()) {
+            finishVoiceSession();
+            showTemporaryVoiceMessage("No escuché una instrucción.");
+            return;
+        }
         String normalized = VoiceCommandParser.normalizeForIntent(spoken);
 
         if (pendingConfirmation != null) {
-            if (containsAny(normalized, "si", "guardar", "guardalo", "confirmar", "confirmo", "dale")) {
-                VoiceCommand toSave = pendingConfirmation;
+            if (isAffirmative(normalized)) {
+                VoiceCommand command = pendingConfirmation;
                 clearVoiceConfirmation();
-                saveVoiceCommand(toSave);
-            } else if (containsAny(normalized, "no", "cancelar", "cancela", "olvidalo")) {
+                executeVoiceCommand(command);
+            } else if (containsAny(normalized, "editar", "cambiar antes")) {
+                VoiceCommand command = pendingConfirmation;
+                clearVoiceConfirmation();
+                if (command.action == VoiceCommand.Action.CREATE) openVoiceCommandInEditor(command);
+                else if (command.targetId > 0) openEdit(command.targetId);
+                finishVoiceSession();
+            } else if (isNegativeConfirmation(normalized)) {
                 clearVoiceConfirmation();
                 pendingVoiceText = "";
                 pendingVoiceCommand = null;
-                speak("De acuerdo. No lo guardé.");
-                showVoiceMessage("Cancelado", true);
-            } else if (containsAny(normalized, "editar", "cambiar")) {
-                VoiceCommand toEdit = pendingConfirmation;
-                clearVoiceConfirmation();
-                openVoiceCommandInEditor(toEdit);
+                showTemporaryVoiceMessage("De acuerdo. Cancelado.");
+                speak("De acuerdo. Cancelado.");
+                finishVoiceSessionAfterSpeech();
             } else {
-                promptAndListen("Di guardar, editar o cancelar.");
+                promptAndListen("Di confirmar, editar o cancelar.");
             }
             return;
         }
 
-        if (!pendingVoiceText.isEmpty() && containsAny(normalized, "cancelar", "cancela", "olvidalo", "olvida eso")) {
+        if (containsAny(normalized, "cancelar", "cancela", "olvidalo", "olvida eso") && !pendingVoiceText.isEmpty()) {
             pendingVoiceText = "";
             pendingVoiceCommand = null;
-            showVoiceMessage("Conversación cancelada", true);
+            showTemporaryVoiceMessage("De acuerdo. Cancelado.");
             speak("De acuerdo. Cancelado.");
+            finishVoiceSessionAfterSpeech();
             return;
         }
 
@@ -627,97 +613,205 @@ public class MainActivity extends Activity {
         merged = UserContextResolver.enrich(this, merged, parseNow);
         VoiceCommand command = VoiceCommandParser.parse(merged, parseNow);
 
-        switch (command.action) {
-            case QUERY_TODAY:
-                pendingVoiceText = "";
-                pendingVoiceCommand = null;
-                speakAgendaForDay(0, "hoy");
-                return;
-            case QUERY_TOMORROW:
-                pendingVoiceText = "";
-                pendingVoiceCommand = null;
-                speakAgendaForDay(1, "mañana");
-                return;
-            case QUERY_NEXT:
-                pendingVoiceText = "";
-                pendingVoiceCommand = null;
-                speakNextEvent();
-                return;
-            case CREATE:
-                if (!command.issue.isEmpty()) {
-                    pendingVoiceText = "";
-                    pendingVoiceCommand = null;
-                    showVoiceMessage(command.issue, true);
-                    speak(command.issue);
-                    return;
-                }
-
-                pendingVoiceText = merged;
-                pendingVoiceCommand = command;
-                if (command.missingTitle) {
-                    promptAndListen("¿Qué nombre quieres ponerle?");
-                    return;
-                }
-                if (command.missingDate) {
-                    promptAndListen("¿Para qué día?");
-                    return;
-                }
-                if (command.missingTime) {
-                    promptAndListen("¿A qué hora?");
-                    return;
-                }
-
-                pendingVoiceText = "";
-                pendingVoiceCommand = null;
-                confirmVoiceCommand(command);
-                return;
-            default:
-                showVoiceMessage("No entendí la instrucción. Puedes pedirme una cita, un recordatorio o preguntarme qué tienes hoy.", true);
+        if (command.action == VoiceCommand.Action.QUERY_TODAY) {
+            pendingVoiceText = "";
+            pendingVoiceCommand = null;
+            speakAgendaForDay(0, "hoy");
+            finishVoiceSessionAfterSpeech();
+            return;
         }
+        if (command.action == VoiceCommand.Action.QUERY_TOMORROW) {
+            pendingVoiceText = "";
+            pendingVoiceCommand = null;
+            speakAgendaForDay(1, "mañana");
+            finishVoiceSessionAfterSpeech();
+            return;
+        }
+        if (command.action == VoiceCommand.Action.QUERY_NEXT) {
+            pendingVoiceText = "";
+            pendingVoiceCommand = null;
+            speakNextEvent();
+            finishVoiceSessionAfterSpeech();
+            return;
+        }
+        if (command.action == VoiceCommand.Action.UNKNOWN) {
+            promptAndListen("No entendí la instrucción. Inténtalo de otra forma.");
+            return;
+        }
+        if (!command.issue.isEmpty()) {
+            pendingVoiceText = "";
+            pendingVoiceCommand = null;
+            showTemporaryVoiceMessage(command.issue);
+            speak(command.issue);
+            finishVoiceSessionAfterSpeech();
+            return;
+        }
+
+        if (command.action == VoiceCommand.Action.REMEMBER) {
+            db.addMemory(command.memoryFact);
+            String message = "Listo. Recordaré que " + command.memoryFact + ".";
+            voiceStatus.setText(message);
+            speak(message);
+            pendingVoiceText = "";
+            pendingVoiceCommand = null;
+            finishVoiceSessionAfterSpeech();
+            return;
+        }
+
+        pendingVoiceText = merged;
+        pendingVoiceCommand = command;
+        if (command.missingTitle) {
+            promptAndListen("¿Qué nombre quieres ponerle?");
+            return;
+        }
+        if (command.missingDate) {
+            promptAndListen(command.action == VoiceCommand.Action.RESCHEDULE ? "¿Para qué día quieres moverlo?" : "¿Para qué día?");
+            return;
+        }
+        if (command.missingTime) {
+            promptAndListen(command.timeWasAmbiguous ? "¿De la mañana o de la tarde?" : "¿A qué hora?");
+            return;
+        }
+
+        pendingVoiceText = "";
+        pendingVoiceCommand = null;
+
+        if (requiresTarget(command.action)) {
+            ReminderItem target = db.findBestActiveMatch(command.targetQuery, System.currentTimeMillis());
+            if (target == null) {
+                String message = "No encontré un pendiente que coincida con “" + command.targetQuery + "”.";
+                showTemporaryVoiceMessage(message);
+                speak(message);
+                finishVoiceSessionAfterSpeech();
+                return;
+            }
+            command.targetId = target.id;
+            if (command.action == VoiceCommand.Action.SNOOZE) {
+                executeVoiceCommand(command);
+                return;
+            }
+        }
+
+        showVoiceConfirmation(command);
     }
 
-    private void promptAndListen(String prompt) {
-        if (voiceStatus != null) voiceStatus.setText(prompt);
-        speak(prompt, true);
+    private boolean requiresTarget(VoiceCommand.Action action) {
+        return action == VoiceCommand.Action.COMPLETE || action == VoiceCommand.Action.CANCEL
+                || action == VoiceCommand.Action.RESCHEDULE || action == VoiceCommand.Action.SNOOZE;
     }
 
-    private void confirmVoiceCommand(VoiceCommand command) {
-        String when = DateFormat.getDateTimeInstance(DateFormat.FULL, DateFormat.SHORT, new Locale("es", "ES"))
-                .format(new Date(command.eventTime));
-        String ambiguity = command.timeWasAmbiguous
-                ? "\n\nInterpreté la hora como de la tarde. Revísala antes de guardar."
-                : "";
-        String calendar = AppPrefs.calendarSyncEnabled(this) && AppPrefs.calendarId(this) > 0
-                ? "\n\nTambién se enviará a Google Calendar." : "";
-
+    private void showVoiceConfirmation(VoiceCommand command) {
         pendingConfirmation = command;
+        String summary = confirmationSummary(command);
+        if (voiceStatus != null) voiceStatus.setText(summary);
+
         AlertDialog.Builder builder = new AlertDialog.Builder(this)
-                .setTitle("¿Lo agendo?")
-                .setMessage(command.title + "\n" + when + ambiguity + calendar)
+                .setTitle("Lyra entendió")
+                .setMessage(summary)
                 .setNegativeButton("Cancelar", (d, w) -> {
                     clearVoiceConfirmation();
-                    speak("Cancelado.");
+                    finishVoiceSession();
                 })
                 .setNeutralButton("Editar", (d, w) -> {
                     VoiceCommand edit = command;
                     clearVoiceConfirmation();
-                    openVoiceCommandInEditor(edit);
+                    if (edit.action == VoiceCommand.Action.CREATE) openVoiceCommandInEditor(edit);
+                    else if (edit.targetId > 0) openEdit(edit.targetId);
+                    finishVoiceSession();
                 })
-                .setPositiveButton("Guardar", (d, w) -> {
-                    VoiceCommand save = command;
+                .setPositiveButton("Confirmar", (d, w) -> {
+                    VoiceCommand execute = command;
                     clearVoiceConfirmation();
-                    saveVoiceCommand(save);
+                    executeVoiceCommand(execute);
                 });
         voiceConfirmDialog = builder.create();
         voiceConfirmDialog.setOnDismissListener(d -> {
             if (voiceConfirmDialog != null && !voiceConfirmDialog.isShowing()) voiceConfirmDialog = null;
         });
         voiceConfirmDialog.show();
+        promptAndListen(summary + ". ¿Confirmas? Di confirmar, editar o cancelar.");
+    }
 
-        String spokenSummary = command.title + ", " + DateFormat.getDateTimeInstance(
-                DateFormat.MEDIUM, DateFormat.SHORT, new Locale("es", "ES")).format(new Date(command.eventTime))
-                + ". ¿Lo guardo? Di guardar, editar o cancelar.";
-        promptAndListen(spokenSummary);
+    private String confirmationSummary(VoiceCommand command) {
+        if (command.action == VoiceCommand.Action.CREATE) {
+            if (!command.hasTime) return "Crear " + command.kind.toLowerCase(Locale.ROOT) + ": " + command.title;
+            return "Crear " + command.kind.toLowerCase(Locale.ROOT) + ": " + command.title + ", "
+                    + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, new Locale("es", "ES"))
+                    .format(new Date(command.eventTime));
+        }
+        ReminderItem target = db.get(command.targetId);
+        String targetTitle = target == null ? command.targetQuery : target.title;
+        if (command.action == VoiceCommand.Action.COMPLETE) return "Marcar como hecho: " + targetTitle;
+        if (command.action == VoiceCommand.Action.CANCEL) return "Eliminar: " + targetTitle;
+        if (command.action == VoiceCommand.Action.RESCHEDULE) return "Mover " + targetTitle + " a "
+                + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT, new Locale("es", "ES"))
+                .format(new Date(command.eventTime));
+        return targetTitle;
+    }
+
+    private void executeVoiceCommand(VoiceCommand command) {
+        String message;
+        boolean calendarSaved = false;
+
+        if (command.action == VoiceCommand.Action.CREATE) {
+            ReminderItem item = new ReminderItem();
+            item.kind = command.kind;
+            item.title = command.title;
+            item.notes = "";
+            item.hasTime = command.hasTime;
+            item.eventTime = command.hasTime ? command.eventTime : 0;
+            item.remindMinutes = command.hasTime ? AppPrefs.defaultReminderMinutes(this) : -1;
+            item.id = db.save(item);
+            AlarmScheduler.schedule(this, item);
+            if (item.canSyncToCalendar()) calendarSaved = CalendarBridge.saveToSelectedCalendar(this, db, item);
+            message = "Listo. Guardé " + item.title + (calendarSaved ? " y lo añadí a Google Calendar." : ".");
+        } else {
+            ReminderItem target = db.get(command.targetId);
+            if (target == null) {
+                message = "Ese pendiente ya no existe.";
+            } else if (command.action == VoiceCommand.Action.COMPLETE) {
+                db.markCompleted(target.id, true);
+                AlarmScheduler.cancel(this, target.id);
+                message = "Hecho. Marqué " + target.title + " como completado.";
+            } else if (command.action == VoiceCommand.Action.CANCEL) {
+                AlarmScheduler.cancel(this, target.id);
+                if (target.calendarEventId > 0) CalendarBridge.deleteLinkedEvent(this, target);
+                db.delete(target.id);
+                message = "Listo. Eliminé " + target.title + ".";
+            } else if (command.action == VoiceCommand.Action.RESCHEDULE) {
+                target.hasTime = true;
+                target.eventTime = command.eventTime;
+                target.completed = false;
+                if (target.remindMinutes < 0 && !"Nota".equals(target.kind)) target.remindMinutes = AppPrefs.defaultReminderMinutes(this);
+                db.save(target);
+                AlarmScheduler.schedule(this, target);
+                if (target.canSyncToCalendar()) calendarSaved = CalendarBridge.saveToSelectedCalendar(this, db, target);
+                message = "Listo. Moví " + target.title + " a " + relativeWhen(target.eventTime)
+                        + (calendarSaved ? " y actualicé Google Calendar." : ".");
+            } else if (command.action == VoiceCommand.Action.SNOOZE) {
+                AlarmScheduler.snooze(this, target.id, command.snoozeMinutes);
+                message = "Listo. Te avisaré de " + target.title + " en " + snoozeText(command.snoozeMinutes) + ".";
+            } else {
+                message = "No pude ejecutar esa acción.";
+            }
+        }
+
+        refreshDashboard();
+        if (voiceStatus != null) voiceStatus.setText(message);
+        speak(message);
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
+        finishVoiceSessionAfterSpeech();
+    }
+
+    private String snoozeText(int minutes) {
+        if (minutes == 60) return "1 hora";
+        if (minutes % 60 == 0) return (minutes / 60) + " horas";
+        return minutes + " minutos";
+    }
+
+    private void promptAndListen(String prompt) {
+        setListeningUi(false, prompt);
+        speak(prompt, true);
     }
 
     private void clearVoiceConfirmation() {
@@ -727,38 +821,16 @@ public class MainActivity extends Activity {
             voiceConfirmDialog = null;
             if (dialog.isShowing()) dialog.dismiss();
         }
-        if (speechRecognizer != null) {
-            try { speechRecognizer.cancel(); } catch (Exception ignored) {}
-        }
+        destroySpeechRecognizer();
     }
 
     private void openVoiceCommandInEditor(VoiceCommand command) {
-        if (command == null) return;
         Intent intent = new Intent(this, EditorActivity.class);
         intent.putExtra("prefill_kind", command.kind);
         intent.putExtra("prefill_title", command.title);
         intent.putExtra("prefill_time", command.eventTime);
+        intent.putExtra("prefill_has_time", command.hasTime);
         startActivity(intent);
-    }
-
-    private void saveVoiceCommand(VoiceCommand command) {
-        ReminderItem item = new ReminderItem();
-        item.kind = command.kind;
-        item.title = command.title;
-        item.notes = "";
-        item.eventTime = command.eventTime;
-        item.remindMinutes = AppPrefs.defaultReminderMinutes(this);
-        item.id = db.save(item);
-        AlarmScheduler.schedule(this, item);
-        boolean calendarSaved = CalendarBridge.saveToSelectedCalendar(this, db, item);
-        refreshAgenda();
-
-        String time = DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(item.eventTime));
-        String confirmation = "Listo. Guardé " + item.title + " para las " + time
-                + (calendarSaved ? " y lo añadí a Google Calendar." : ".");
-        if (voiceStatus != null) voiceStatus.setText(confirmation);
-        speak(confirmation);
-        Toast.makeText(this, calendarSaved ? "Guardado y sincronizado" : "Guardado por voz", Toast.LENGTH_SHORT).show();
     }
 
     private void speakAgendaForDay(int dayOffset, String label) {
@@ -774,18 +846,16 @@ public class MainActivity extends Activity {
         long from = dayOffset == 0 ? Math.max(System.currentTimeMillis(), start.getTimeInMillis()) : start.getTimeInMillis();
         List<ReminderItem> items = db.between(from, end.getTimeInMillis());
         if (items.isEmpty()) {
-            String message = "No tienes nada pendiente para " + label + ".";
+            String message = "No tienes eventos con hora para " + label + ".";
+            if (dayOffset == 0 && !db.activeTasks().isEmpty()) message += " Sí tienes tareas pendientes.";
             if (voiceStatus != null) voiceStatus.setText(message);
             speak(message);
-            showToday = dayOffset == 0;
-            updateTabs();
-            refreshAgenda();
             return;
         }
 
         StringBuilder speech = new StringBuilder("Para ").append(label).append(" tienes ")
                 .append(items.size()).append(items.size() == 1 ? " pendiente. " : " pendientes. ");
-        int limit = Math.min(items.size(), 3);
+        int limit = Math.min(items.size(), 4);
         for (int i = 0; i < limit; i++) {
             ReminderItem item = items.get(i);
             String at = DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(item.eventTime));
@@ -798,14 +868,10 @@ public class MainActivity extends Activity {
 
     private void speakNextEvent() {
         ReminderItem item = db.nextAfter(System.currentTimeMillis());
-        if (item == null) {
-            String message = "No tienes eventos próximos.";
-            if (voiceStatus != null) voiceStatus.setText(message);
-            speak(message);
-            return;
-        }
-        String when = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(new Date(item.eventTime));
-        String message = "Lo próximo es " + item.title + ", " + when + ".";
+        String message;
+        if (item == null) message = "No tienes eventos próximos con hora.";
+        else message = "Lo próximo es " + item.title + ", "
+                + DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(new Date(item.eventTime)) + ".";
         if (voiceStatus != null) voiceStatus.setText(message);
         speak(message);
     }
@@ -825,8 +891,11 @@ public class MainActivity extends Activity {
     }
 
     private void handleTtsDone(String utteranceId) {
-        if (utteranceId != null && utteranceId.startsWith("followup:")) {
-            mainHandler.postDelayed(this::startVoiceRecognition, 250);
+        if (utteranceId == null) return;
+        if (utteranceId.startsWith("followup:")) {
+            mainHandler.postDelayed(this::startVoiceRecognitionContinuation, 250);
+        } else if (utteranceId.startsWith("finish:")) {
+            mainHandler.post(this::finishVoiceSession);
         }
     }
 
@@ -836,30 +905,61 @@ public class MainActivity extends Activity {
 
     private void speak(String text, boolean listenAfter) {
         if (!AppPrefs.voiceRepliesEnabled(this)) {
-            if (listenAfter) mainHandler.postDelayed(this::startVoiceRecognition, 350);
+            if (listenAfter) mainHandler.postDelayed(this::startVoiceRecognitionContinuation, 300);
             return;
         }
         if (ttsReady && textToSpeech != null) {
             String id = (listenAfter ? "followup:" : "assistant:") + System.currentTimeMillis();
             textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, id);
         } else if (listenAfter) {
-            mainHandler.postDelayed(this::startVoiceRecognition, 650);
+            mainHandler.postDelayed(this::startVoiceRecognitionContinuation, 600);
+        }
+    }
+
+    private void finishVoiceSessionAfterSpeech() {
+        voiceFinishDeadline = System.currentTimeMillis() + 9000L;
+        mainHandler.postDelayed(this::finishAfterSpeechCheck, 120);
+    }
+
+    private void finishAfterSpeechCheck() {
+        if (!manualVoiceSession) return;
+        boolean speaking = AppPrefs.voiceRepliesEnabled(this) && ttsReady && textToSpeech != null && textToSpeech.isSpeaking();
+        if (speaking && System.currentTimeMillis() < voiceFinishDeadline) {
+            mainHandler.postDelayed(this::finishAfterSpeechCheck, 250);
+            return;
+        }
+        voiceFinishDeadline = 0L;
+        finishVoiceSession();
+    }
+
+    private void startVoiceRecognitionContinuation() {
+        if (!manualVoiceSession) {
+            pauseWakeService();
+            manualVoiceSession = true;
+        }
+        fallbackTried = false;
+        boolean canUseOnDevice = Build.VERSION.SDK_INT >= 31 && SpeechRecognizer.isOnDeviceRecognitionAvailable(this);
+        startVoiceRecognitionInternal(canUseOnDevice);
+    }
+
+    private void finishVoiceSession() {
+        voiceFinishDeadline = 0L;
+        destroySpeechRecognizer();
+        setListeningUi(false, defaultVoiceHint());
+        if (manualVoiceSession) {
+            manualVoiceSession = false;
+            resumeWakeService();
         }
     }
 
     private void setListeningUi(boolean listening, String message) {
         if (voiceStatus != null) voiceStatus.setText(message);
         if (micButton != null) {
-            micButton.setBackground(Ui.rounded(Color.WHITE, 39, this));
-            micButton.setColorFilter(listening ? Ui.LISTENING : Ui.PRIMARY);
+            micButton.setBackground(Ui.rounded(listening ? Ui.LISTENING : Ui.PRIMARY, 26, this));
+            micButton.setColorFilter(Color.WHITE);
             micButton.setEnabled(!listening);
-            micButton.setAlpha(listening ? 0.85f : 1f);
+            micButton.setAlpha(listening ? 0.88f : 1f);
         }
-    }
-
-    private void showVoiceMessage(String message, boolean resetMic) {
-        if (voiceStatus != null) voiceStatus.setText(message);
-        if (resetMic) setListeningUi(false, message);
     }
 
     private void showTemporaryVoiceMessage(String message) {
@@ -874,44 +974,32 @@ public class MainActivity extends Activity {
 
     private String defaultVoiceHint() {
         if (AppPrefs.wakeWordEnabled(this)) {
-            return WakeWordService.isRunning()
-                    ? "Lyra activa · di “Lyra” o toca para hablar"
-                    : "Activación por voz pendiente · toca para hablar";
+            return WakeWordService.isRunning() ? "Lyra activa · di “Lyra” o toca para hablar" : "Activación pendiente · toca para hablar";
         }
-        return "Toca el micrófono para hablar";
+        return "Toca para hablar con Lyra";
     }
 
-    private void setButtonIcon(Button button, int drawableRes, int tint) {
-        Drawable icon = getDrawable(drawableRes);
-        if (icon == null) return;
-        icon.setTint(tint);
-        int size = dp(20);
-        icon.setBounds(0, 0, size, size);
-        button.setCompoundDrawables(icon, null, null, null);
-        button.setCompoundDrawablePadding(dp(8));
+    private void pauseWakeService() {
+        if (!WakeWordService.isRunning()) return;
+        try {
+            startService(new Intent(this, WakeWordService.class).setAction(WakeWordService.ACTION_PAUSE));
+        } catch (RuntimeException ignored) {}
     }
 
-    private void requestNotificationPermissionIfNeeded() {
-        if (Build.VERSION.SDK_INT >= 33 &&
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Permitir recordatorios")
-                    .setMessage("Lyra necesita permiso para mostrarte avisos cuando llegue una cita o recordatorio.")
-                    .setNegativeButton("Ahora no", null)
-                    .setPositiveButton("Permitir", (d, w) -> requestPermissions(
-                            new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS))
-                    .show();
-        }
+    private void resumeWakeService() {
+        if (!AppPrefs.wakeWordEnabled(this) || !WakeWordService.isRunning()) return;
+        try {
+            startService(new Intent(this, WakeWordService.class).setAction(WakeWordService.ACTION_RESUME));
+        } catch (RuntimeException ignored) {}
     }
 
     private void ensureWakeServiceIfEnabled() {
         if (!AppPrefs.wakeWordEnabled(this) || WakeWordService.isRunning()) return;
-        if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) return;
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) return;
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return;
         try {
             startForegroundService(new Intent(this, WakeWordService.class));
-        } catch (RuntimeException ignored) {
-        }
+        } catch (RuntimeException ignored) {}
     }
 
     private void pullCalendarChanges() {
@@ -920,25 +1008,66 @@ public class MainActivity extends Activity {
             EventDatabase syncDb = new EventDatabase(getApplicationContext());
             CalendarBridge.SyncResult result = CalendarBridge.pullLinkedChanges(getApplicationContext(), syncDb);
             syncDb.close();
-            if (result.pulled + result.removed > 0) runOnUiThread(this::refreshAgenda);
+            if (result.pulled + result.removed > 0) runOnUiThread(this::refreshDashboard);
         }).start();
+    }
+
+    private void requestNotificationPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Permitir recordatorios")
+                    .setMessage("Lyra necesita permiso para mostrar avisos y acciones rápidas cuando llegue un recordatorio.")
+                    .setNegativeButton("Ahora no", null)
+                    .setPositiveButton("Permitir", (d, w) -> requestPermissions(
+                            new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS))
+                    .show();
+        }
     }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == REQ_AUDIO) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startVoiceRecognition();
-            } else {
-                showTemporaryVoiceMessage("Sin permiso de micrófono no puedo recibir instrucciones por voz.");
-            }
+            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) startVoiceRecognition();
+            else showTemporaryVoiceMessage("Sin permiso de micrófono no puedo recibir instrucciones por voz.");
         }
     }
 
-    private boolean containsAny(String text, String... values) {
-        for (String value : values) if (text.contains(value)) return true;
-        return false;
+    private void setButtonIcon(Button button, int drawableRes, int tint) {
+        Drawable icon = getDrawable(drawableRes);
+        if (icon == null) return;
+        icon.setTint(tint);
+        int size = dp(19);
+        icon.setBounds(0, 0, size, size);
+        button.setCompoundDrawables(icon, null, null, null);
+        button.setCompoundDrawablePadding(dp(8));
+    }
+
+    private Calendar startOfTomorrow() {
+        Calendar end = Calendar.getInstance();
+        end.add(Calendar.DAY_OF_YEAR, 1);
+        end.set(Calendar.HOUR_OF_DAY, 0);
+        end.set(Calendar.MINUTE, 0);
+        end.set(Calendar.SECOND, 0);
+        end.set(Calendar.MILLISECOND, 0);
+        return end;
+    }
+
+    private String relativeWhen(long millis) {
+        Calendar event = Calendar.getInstance();
+        event.setTimeInMillis(millis);
+        Calendar today = Calendar.getInstance();
+        String time = DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(millis));
+        if (sameDay(event, today)) return "hoy " + time;
+        Calendar tomorrow = (Calendar) today.clone();
+        tomorrow.add(Calendar.DAY_OF_YEAR, 1);
+        if (sameDay(event, tomorrow)) return "mañana " + time;
+        return new SimpleDateFormat("d MMM · h:mm a", new Locale("es", "ES")).format(new Date(millis));
+    }
+
+    private boolean sameDay(Calendar a, Calendar b) {
+        return a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR);
     }
 
     private String greeting() {
@@ -948,15 +1077,30 @@ public class MainActivity extends Activity {
         return "Buenas noches";
     }
 
-    private String reminderLabel(int minutes) {
-        if (minutes == 0) return "aviso a la hora";
-        if (minutes == 60) return "1 h antes";
-        if (minutes == 1440) return "1 día antes";
-        return minutes + " min antes";
-    }
-
     private String countText(int count, String singular, String plural) {
         return count + " " + (count == 1 ? singular : plural);
+    }
+
+    private boolean isAffirmative(String text) {
+        return containsWholeChoice(text, "si", "guardar", "guardalo", "confirmar", "confirmo", "dale", "hazlo");
+    }
+
+    private boolean isNegativeConfirmation(String text) {
+        return containsWholeChoice(text, "no", "cancelar", "cancela", "olvidalo");
+    }
+
+    private boolean containsWholeChoice(String text, String... values) {
+        String clean = (text == null ? "" : text).replaceAll("[^a-z0-9ñ ]", " ").replaceAll("\\s+", " ").trim();
+        String padded = " " + clean + " ";
+        for (String value : values) {
+            if (padded.contains(" " + value + " ")) return true;
+        }
+        return false;
+    }
+
+    private boolean containsAny(String text, String... values) {
+        for (String value : values) if (text.contains(value)) return true;
+        return false;
     }
 
     private LinearLayout.LayoutParams matchWrap() {
@@ -965,13 +1109,13 @@ public class MainActivity extends Activity {
 
     private LinearLayout.LayoutParams sectionParams() {
         LinearLayout.LayoutParams lp = matchWrap();
-        lp.topMargin = dp(22);
+        lp.topMargin = dp(18);
         return lp;
     }
 
     private LinearLayout.LayoutParams cardLayoutParams(boolean withTopMargin) {
         LinearLayout.LayoutParams lp = matchWrap();
-        if (withTopMargin) lp.topMargin = dp(10);
+        if (withTopMargin) lp.topMargin = dp(9);
         return lp;
     }
 
@@ -988,25 +1132,29 @@ public class MainActivity extends Activity {
 
         @Override
         public void onError(int error) {
-            if (usingOnDeviceRecognizer && !fallbackTried && Build.VERSION.SDK_INT >= 31 &&
-                    (error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE)) {
+            if (usingOnDeviceRecognizer && !fallbackTried &&
+                    (error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
+                            || error == SpeechRecognizer.ERROR_CLIENT)) {
                 fallbackTried = true;
                 startVoiceRecognitionInternal(false);
                 return;
             }
             String message;
-            if (error == SpeechRecognizer.ERROR_NO_MATCH) message = "No pude entenderte. Toca el micrófono e inténtalo otra vez.";
-            else if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) message = "No escuché nada. Toca el micrófono cuando quieras hablar.";
+            if (error == SpeechRecognizer.ERROR_NO_MATCH) message = "No pude entenderte. Inténtalo otra vez.";
+            else if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) message = "No escuché nada.";
             else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) message = "Necesito permiso de micrófono para escucharte.";
-            else message = "El reconocimiento de voz no respondió. Inténtalo de nuevo.";
+            else if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) message = "El micrófono está ocupado. Espera un momento.";
+            else message = "El reconocimiento de voz no respondió.";
+            finishVoiceSession();
             showTemporaryVoiceMessage(message);
         }
 
         @Override
         public void onResults(Bundle results) {
             ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-            setListeningUi(false, "Listo");
+            setListeningUi(false, "Procesando…");
             if (matches == null || matches.isEmpty()) {
+                finishVoiceSession();
                 showTemporaryVoiceMessage("No pude entenderte. Inténtalo otra vez.");
                 return;
             }

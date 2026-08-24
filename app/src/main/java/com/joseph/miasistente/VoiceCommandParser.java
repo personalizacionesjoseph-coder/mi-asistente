@@ -12,9 +12,12 @@ public final class VoiceCommandParser {
     private static final Pattern NUMERIC_DATE = Pattern.compile("\\b(\\d{1,2})[/-](\\d{1,2})(?:[/-](\\d{2,4}))?\\b");
     private static final Pattern MONTH_DATE = Pattern.compile("\\b(?:el\\s+)?(\\d{1,2})\\s+de\\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(?:\\s+de\\s+(\\d{4}))?\\b");
     private static final Pattern TIME_AT = Pattern.compile("\\b(?:a\\s+las?|para\\s+las?)\\s+(\\d{1,2})(?::(\\d{2}))?(?:\\s*(am|pm)|\\s+de\\s+la\\s+(manana|tarde|noche))?\\b");
+    private static final Pattern TIME_DAYPART = Pattern.compile("\\b(\\d{1,2})(?::(\\d{2}))?\\s+de\\s+la\\s+(manana|tarde|noche)\\b");
     private static final Pattern TIME_COLON = Pattern.compile("\\b(\\d{1,2}):(\\d{2})\\s*(am|pm)?\\b");
     private static final Pattern TIME_AMPM = Pattern.compile("\\b(\\d{1,2})\\s*(am|pm)\\b");
     private static final Pattern TIME_WORD = Pattern.compile("\\b(?:a\\s+las?|a\\s+la|para\\s+las?|para\\s+la)\\s+(una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?:\\s+y\\s+(media|cuarto))?(?:\\s+de\\s+la\\s+(manana|tarde|noche))?\\b");
+    private static final Pattern SNOOZE_MINUTES = Pattern.compile("\\b(\\d{1,3})\\s*(?:minutos?|min)\\b");
+    private static final Pattern SNOOZE_HOURS = Pattern.compile("\\b(\\d{1,2})\\s*(?:horas?|h)\\b");
 
     private static final Map<String, Integer> MONTHS = new HashMap<>();
     private static final Map<String, Integer> WEEKDAYS = new HashMap<>();
@@ -58,24 +61,72 @@ public final class VoiceCommandParser {
 
         String original = spoken.trim();
         String text = normalize(original);
+        text = text.replaceFirst("^(oye\\s+)?(lyra|lira)[,.:]?\\s*", "").trim();
 
-        if (containsAny(text, "que tengo hoy", "agenda de hoy", "citas de hoy", "recordatorios de hoy", "mi agenda hoy")) {
+        if (containsAny(text, "que tengo hoy", "agenda de hoy", "citas de hoy", "recordatorios de hoy", "mi agenda hoy", "que hay hoy")) {
             out.action = VoiceCommand.Action.QUERY_TODAY;
             return out;
         }
-        if (containsAny(text, "que tengo manana", "agenda de manana", "citas de manana", "recordatorios de manana", "mi agenda manana")) {
+        if (containsAny(text, "que tengo manana", "agenda de manana", "citas de manana", "recordatorios de manana", "mi agenda manana", "que hay manana")) {
             out.action = VoiceCommand.Action.QUERY_TOMORROW;
             return out;
         }
-        if (containsAny(text, "proxima cita", "proximo recordatorio", "que sigue", "que tengo despues", "siguiente cita")) {
+        if (containsAny(text, "proxima cita", "proximo recordatorio", "que sigue", "que tengo despues", "siguiente cita", "siguiente pendiente")) {
             out.action = VoiceCommand.Action.QUERY_NEXT;
             return out;
         }
 
+        if (text.startsWith("recuerda que ") || text.startsWith("memoriza que ") || text.startsWith("guarda que ")) {
+            out.action = VoiceCommand.Action.REMEMBER;
+            out.memoryFact = original.replaceFirst("(?iu)^\\s*(oye\\s+)?(lyra|lira)[,.:]?\\s*", "")
+                    .replaceFirst("(?iu)^\\s*(recuerda|memoriza|guarda)\\s+que\\s+", "").trim();
+            if (out.memoryFact.isEmpty()) out.issue = "Dime qué quieres que recuerde.";
+            return out;
+        }
+
+        if (startsWithAny(text, "marca ", "completa ", "termina ") &&
+                (text.contains("como hecho") || text.contains("como hecha") || text.startsWith("completa ") || text.startsWith("termina "))) {
+            out.action = VoiceCommand.Action.COMPLETE;
+            out.targetQuery = cleanupTarget(original, VoiceCommand.Action.COMPLETE);
+            if (out.targetQuery.isEmpty()) out.issue = "Dime qué pendiente quieres marcar como hecho.";
+            return out;
+        }
+
+        if (startsWithAny(text, "cancela ", "elimina ", "borra ", "quita ")) {
+            out.action = VoiceCommand.Action.CANCEL;
+            out.targetQuery = cleanupTarget(original, VoiceCommand.Action.CANCEL);
+            if (out.targetQuery.isEmpty()) out.issue = "Dime qué quieres cancelar o eliminar.";
+            return out;
+        }
+
+        if (startsWithAny(text, "pospone ", "aplaza ", "recuerdame de nuevo ")) {
+            out.action = VoiceCommand.Action.SNOOZE;
+            out.snoozeMinutes = parseSnoozeMinutes(text);
+            out.targetQuery = cleanupTarget(original, VoiceCommand.Action.SNOOZE);
+            if (out.snoozeMinutes <= 0) out.issue = "Dime cuánto tiempo quieres posponerlo, por ejemplo 10 minutos o 1 hora.";
+            else if (out.targetQuery.isEmpty()) out.issue = "Dime qué pendiente quieres posponer.";
+            return out;
+        }
+
+        if (startsWithAny(text, "mueve ", "reprograma ", "cambia ")) {
+            out.action = VoiceCommand.Action.RESCHEDULE;
+            out.targetQuery = cleanupTarget(original, VoiceCommand.Action.RESCHEDULE);
+            applyRequiredDateTime(out, text, nowMillis);
+            if (out.targetQuery.isEmpty()) out.issue = "Dime qué evento quieres reprogramar.";
+            return out;
+        }
+
         out.action = VoiceCommand.Action.CREATE;
-        out.kind = looksLikeAppointment(text) ? "Cita" : "Recordatorio";
+        out.kind = classifyKind(text);
         out.title = cleanupTitle(original, out.kind);
         out.missingTitle = out.title.isEmpty() || out.title.equalsIgnoreCase(out.kind);
+
+        if ("Nota".equals(out.kind)) {
+            out.hasTime = false;
+            out.missingDate = false;
+            out.missingTime = false;
+            return out;
+        }
 
         Calendar now = Calendar.getInstance();
         now.setTimeInMillis(nowMillis);
@@ -85,10 +136,18 @@ public final class VoiceCommandParser {
 
         boolean dateFound = applyDate(text, target, now);
         TimeResult time = parseTime(text);
-        out.missingDate = !dateFound;
-        out.missingTime = !time.found;
         out.timeWasAmbiguous = time.ambiguous;
 
+        if ("Tarea".equals(out.kind) && !dateFound && !time.found) {
+            out.hasTime = false;
+            out.missingDate = false;
+            out.missingTime = false;
+            return out;
+        }
+
+        out.hasTime = true;
+        out.missingDate = !dateFound;
+        out.missingTime = !time.found || time.ambiguous;
         if (out.missingDate || out.missingTime) return out;
 
         target.set(Calendar.HOUR_OF_DAY, time.hour);
@@ -97,14 +156,73 @@ public final class VoiceCommandParser {
         if (isWeekdayMention(text) && sameCalendarDay(target, now) && target.getTimeInMillis() <= nowMillis) {
             target.add(Calendar.DAY_OF_YEAR, 7);
         }
-
         if (target.getTimeInMillis() <= nowMillis) {
             out.issue = "La fecha y hora que entendí ya pasaron.";
             return out;
         }
-
         out.eventTime = target.getTimeInMillis();
         return out;
+    }
+
+    private static void applyRequiredDateTime(VoiceCommand out, String text, long nowMillis) {
+        Calendar now = Calendar.getInstance();
+        now.setTimeInMillis(nowMillis);
+        Calendar target = (Calendar) now.clone();
+        target.set(Calendar.SECOND, 0);
+        target.set(Calendar.MILLISECOND, 0);
+        boolean dateFound = applyDate(text, target, now);
+        TimeResult time = parseTime(text);
+        out.hasTime = true;
+        out.missingDate = !dateFound;
+        out.missingTime = !time.found || time.ambiguous;
+        out.timeWasAmbiguous = time.ambiguous;
+        if (out.missingDate || out.missingTime) return;
+        target.set(Calendar.HOUR_OF_DAY, time.hour);
+        target.set(Calendar.MINUTE, time.minute);
+        if (target.getTimeInMillis() <= nowMillis) {
+            out.issue = "La nueva fecha y hora que entendí ya pasaron.";
+            return;
+        }
+        out.eventTime = target.getTimeInMillis();
+    }
+
+    private static String classifyKind(String text) {
+        if (startsWithAny(text, "anota ", "nota ", "apunta ", "guarda una nota ", "toma nota ")) return "Nota";
+        if (containsAny(text, "tarea", "pendiente", "tengo que", "debo ", "por hacer")) return "Tarea";
+        if (looksLikeAppointment(text)) return "Cita";
+        return "Recordatorio";
+    }
+
+    private static int parseSnoozeMinutes(String text) {
+        if (text.contains("media hora")) return 30;
+        if (text.contains("una hora")) return 60;
+        if (text.contains("dos horas")) return 120;
+        Matcher m = SNOOZE_MINUTES.matcher(text);
+        if (m.find()) return clamp(safeInt(m.group(1), 0), 1, 1440);
+        m = SNOOZE_HOURS.matcher(text);
+        if (m.find()) return clamp(safeInt(m.group(1), 0) * 60, 1, 1440);
+        return 0;
+    }
+
+    private static String cleanupTarget(String original, VoiceCommand.Action action) {
+        String s = original == null ? "" : original.trim();
+        s = s.replaceFirst("(?iu)^\\s*(oye\\s+)?(lyra|lira)[,.:]?\\s*", "");
+        if (action == VoiceCommand.Action.COMPLETE) {
+            s = s.replaceFirst("(?iu)^\\s*(marca|completa|termina)\\s+", "");
+            s = s.replaceAll("(?iu)\\s+como\\s+hech[oa]\\s*$", "");
+        } else if (action == VoiceCommand.Action.CANCEL) {
+            s = s.replaceFirst("(?iu)^\\s*(cancela|elimina|borra|quita)\\s+", "");
+        } else if (action == VoiceCommand.Action.SNOOZE) {
+            s = s.replaceFirst("(?iu)^\\s*(pospone|aplaza|recu[eé]rdame\\s+de\\s+nuevo)\\s+", "");
+            s = s.replaceAll("(?iu)\\b(?:por|durante)\\s+(?:\\d{1,3}\\s*(?:minutos?|min|horas?|h)|una\\s+hora|dos\\s+horas|media\\s+hora)\\b", " ");
+            s = s.replaceAll("(?iu)\\b(?:\\d{1,3}\\s*(?:minutos?|min|horas?|h)|una\\s+hora|dos\\s+horas|media\\s+hora)\\s*$", " ");
+        } else if (action == VoiceCommand.Action.RESCHEDULE) {
+            s = s.replaceFirst("(?iu)^\\s*(mueve|reprograma|cambia)\\s+", "");
+            s = removeDatesAndTimes(s);
+            s = s.replaceAll("(?iu)\\b(pasado\\s+mañana|pasado\\s+manana|hoy|mañana|manana|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\\b", " ");
+            s = s.replaceAll("(?iu)\\b(para|al|a)\\s*$", " ");
+        }
+        return s.replaceAll("\\s+", " ").trim();
     }
 
     private static boolean applyDate(String text, Calendar target, Calendar now) {
@@ -177,22 +295,22 @@ public final class VoiceCommandParser {
             return normalizeTime(baseHour == null ? -1 : baseHour, minute, null, daypart, daypart == null);
         }
 
+        m = TIME_DAYPART.matcher(text);
+        if (m.find()) {
+            int hour = safeInt(m.group(1), -1);
+            int minute = m.group(2) == null ? 0 : safeInt(m.group(2), 0);
+            return normalizeTime(hour, minute, null, m.group(3), false);
+        }
+
         m = TIME_COLON.matcher(text);
-        if (m.find()) {
-            return normalizeTime(safeInt(m.group(1), -1), safeInt(m.group(2), -1), m.group(3), null, false);
-        }
-
+        if (m.find()) return normalizeTime(safeInt(m.group(1), -1), safeInt(m.group(2), -1), m.group(3), null, false);
         m = TIME_AMPM.matcher(text);
-        if (m.find()) {
-            return normalizeTime(safeInt(m.group(1), -1), 0, m.group(2), null, false);
-        }
-
+        if (m.find()) return normalizeTime(safeInt(m.group(1), -1), 0, m.group(2), null, false);
         return new TimeResult(false, 0, 0, false);
     }
 
     private static TimeResult normalizeTime(int hour, int minute, String ampm, String daypart, boolean ambiguous) {
         if (hour < 0 || minute < 0 || minute > 59) return new TimeResult(false, 0, 0, false);
-
         if (ampm != null) {
             if (hour < 1 || hour > 12) return new TimeResult(false, 0, 0, false);
             if ("pm".equals(ampm) && hour != 12) hour += 12;
@@ -203,7 +321,8 @@ public final class VoiceCommandParser {
             if ("manana".equals(daypart) && hour == 12) hour = 0;
         } else {
             if (hour > 23) return new TimeResult(false, 0, 0, false);
-            if (ambiguous && hour >= 1 && hour <= 7) hour += 12;
+            // 1–12 without a daypart is genuinely ambiguous. Do not silently decide AM/PM.
+            ambiguous = ambiguous && hour >= 1 && hour <= 12;
         }
         return new TimeResult(true, hour, minute, ambiguous);
     }
@@ -216,9 +335,26 @@ public final class VoiceCommandParser {
         String s = original == null ? "" : original.trim();
         if (s.isEmpty()) return "";
 
-        s = s.replaceFirst("(?iu)^\\s*(oye\\s+lyra[,.:]?\\s*|lyra[,.:]?\\s*)", "");
+        s = s.replaceFirst("(?iu)^\\s*(oye\\s+lyra[,.:]?\\s*|oye\\s+lira[,.:]?\\s*|lyra[,.:]?\\s*|lira[,.:]?\\s*)", "");
         s = s.replaceFirst("(?iu)^\\s*(por\\s+favor\\s+)?(quisiera|quiero|necesito|podr[ií]as?|puedes)\\s+", "");
         s = s.replaceFirst("(?iu)^\\s*(que\\s+)?", "");
+
+        if ("Nota".equals(kind)) {
+            s = s.replaceFirst("(?iu)^\\s*(anota|apunta|toma\\s+nota(?:\\s+de)?|guarda\\s+una\\s+nota(?:\\s+que)?|nota)\\s*", "");
+            s = s.replaceFirst("(?iu)^\\s*que\\s+", "");
+            s = s.replaceAll("\\s+", " ").trim();
+            return capitalizeFirst(s);
+        }
+
+        if ("Tarea".equals(kind)) {
+            s = s.replaceFirst("(?iu)^\\s*(crea(?:r)?\\s+una\\s+tarea|ponme\\s+una\\s+tarea|tarea|pendiente)\\s*", "");
+            s = removeDatesAndTimes(s);
+            s = removeDayWords(s);
+            s = s.replaceFirst("(?iu)^\\s*(tengo\\s+que|debo)\\s+", "");
+            s = s.replaceAll("\\s+", " ").trim();
+            return capitalizeFirst(s);
+        }
+
         s = s.replaceFirst("(?iu)^\\s*(recu[eé]rdame|recordarme|ponme\\s+un\\s+recordatorio|pon\\s+un\\s+recordatorio|crea(?:r)?\\s+un\\s+recordatorio|ag[eé]ndame|agendar|agenda|programa(?:r)?|crea(?:r)?)\\s*", "");
 
         if ("Cita".equals(kind)) {
@@ -232,26 +368,25 @@ public final class VoiceCommandParser {
         }
 
         s = removeDatesAndTimes(s);
-        s = s.replaceAll("(?iu)\\b(pasado\\s+mañana|pasado\\s+manana|hoy|mañana|manana|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\\b", " ");
+        s = removeDayWords(s);
         s = s.replaceAll("\\s+", " ").trim();
         s = s.replaceFirst("(?iu)^(el|la|para|de)\\s+", "").trim();
         s = s.replaceAll("(?iu)\\s+(el|a|para)$", "").trim();
-
         if (s.isEmpty()) return "";
 
         if ("Cita".equals(kind)) {
             String lower = s.toLowerCase(Locale.ROOT);
-            if (lower.startsWith("con ")) {
-                s = "Cita con " + titleCasePerson(s.substring(4));
-            } else if (lower.startsWith("reuni")) {
-                s = capitalizeFirst(s);
-            } else {
-                s = "Cita: " + capitalizeFirst(s);
-            }
+            if (lower.startsWith("con ")) s = "Cita con " + titleCasePerson(s.substring(4));
+            else if (lower.startsWith("reuni")) s = capitalizeFirst(s);
+            else s = "Cita: " + capitalizeFirst(s);
         } else {
             s = capitalizeFirst(s);
         }
         return s;
+    }
+
+    private static String removeDayWords(String s) {
+        return s.replaceAll("(?iu)\\b(pasado\\s+mañana|pasado\\s+manana|hoy|mañana|manana|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\\b", " ");
     }
 
     private static String removeDatesAndTimes(String s) {
@@ -298,6 +433,11 @@ public final class VoiceCommandParser {
         return n.replaceAll("\\s+", " ").trim();
     }
 
+    private static boolean startsWithAny(String text, String... values) {
+        for (String value : values) if (text.startsWith(value)) return true;
+        return false;
+    }
+
     private static boolean containsAny(String text, String... values) {
         for (String value : values) if (text.contains(value)) return true;
         return false;
@@ -326,16 +466,15 @@ public final class VoiceCommandParser {
         c.setLenient(false);
         c.clear();
         c.set(year, month, day);
-        try {
-            c.getTime();
-            return true;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
+        try { c.getTime(); return true; } catch (IllegalArgumentException e) { return false; }
     }
 
     private static int safeInt(String value, int fallback) {
         try { return Integer.parseInt(value); } catch (Exception e) { return fallback; }
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
     private static class TimeResult {

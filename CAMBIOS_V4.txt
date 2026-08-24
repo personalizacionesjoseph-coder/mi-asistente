@@ -2,9 +2,9 @@ LYRA V0.4.0 — CAMBIOS PRINCIPALES
 
 1. Conversación por voz de varios pasos
 - Lyra ya no inventa fecha u hora cuando faltan.
-- Si dices: “Quiero una cita con Yorsh”, pregunta primero el día y luego la hora.
+- Si dices: “Quiero una cita con Yorch”, pregunta primero el día y luego la hora.
 - La confirmación puede hacerse por voz: guardar, editar o cancelar.
-- El título se limpia antes de guardarse. Ej.: “Quisiera agendar una cita para con el nombre de yorsh” -> “Cita con Yorsh”.
+- El título se limpia antes de guardarse. Ej.: “Quisiera agendar una cita para con el nombre de yorch” -> “Cita con Yorch”.
 
 2. Notificaciones corregidas
 - Ya no repiten la fecha y hora dos veces.

@@ -9,13 +9,16 @@ import android.graphics.Typeface;
 import android.os.Bundle;
 import android.text.InputType;
 import android.view.Gravity;
+import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -28,18 +31,17 @@ public class EditorActivity extends Activity {
     private Spinner kindSpinner;
     private EditText titleInput;
     private EditText notesInput;
+    private Switch scheduleSwitch;
+    private LinearLayout scheduleGroup;
+    private LinearLayout calendarBadge;
     private Button dateButton;
     private Button timeButton;
     private Spinner alertSpinner;
     private final Calendar selected = Calendar.getInstance();
 
+    private final String[] kinds = {"Cita", "Recordatorio", "Tarea", "Nota"};
     private final String[] alertLabels = {
-            "A la hora",
-            "10 minutos antes",
-            "30 minutos antes",
-            "1 hora antes",
-            "1 día antes",
-            "Sin aviso"
+            "A la hora", "10 minutos antes", "30 minutos antes", "1 hora antes", "1 día antes", "Sin aviso"
     };
     private final int[] alertValues = {0, 10, 30, 60, 1440, -1};
 
@@ -59,12 +61,14 @@ public class EditorActivity extends Activity {
             String prefillKind = getIntent().getStringExtra("prefill_kind");
             String prefillTitle = getIntent().getStringExtra("prefill_title");
             long prefillTime = getIntent().getLongExtra("prefill_time", 0);
+            boolean prefillHasTime = getIntent().getBooleanExtra("prefill_has_time", prefillTime > 0);
             if (prefillKind != null && !prefillKind.trim().isEmpty()) item.kind = prefillKind;
             if (prefillTitle != null) item.title = prefillTitle;
+            item.hasTime = prefillHasTime;
             if (prefillTime > System.currentTimeMillis()) item.eventTime = prefillTime;
         }
 
-        if (item.eventTime > 0) {
+        if (item.isScheduled()) {
             selected.setTimeInMillis(item.eventTime);
         } else {
             selected.add(Calendar.HOUR_OF_DAY, 1);
@@ -75,6 +79,7 @@ public class EditorActivity extends Activity {
 
         buildUi();
         fillFields();
+        updateKindUi();
     }
 
     @Override
@@ -105,12 +110,12 @@ public class EditorActivity extends Activity {
         back.setOnClickListener(v -> finish());
         root.addView(back, new LinearLayout.LayoutParams(dp(120), dp(42)));
 
-        TextView eyebrow = Ui.label(this, item.id > 0 ? "EDITAR" : "NUEVO");
+        TextView eyebrow = Ui.label(this, item.id > 0 ? "EDITAR" : "LYRA · NUEVO");
         eyebrow.setTextColor(Ui.PRIMARY);
         root.addView(eyebrow);
 
         TextView heading = new TextView(this);
-        heading.setText(item.id > 0 ? "Actualiza tu evento" : "Añade algo a tu agenda");
+        heading.setText(item.id > 0 ? "Actualiza este elemento" : "Añade algo a tu día");
         heading.setTextSize(29);
         heading.setTextColor(Ui.TEXT);
         heading.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -118,7 +123,7 @@ public class EditorActivity extends Activity {
         root.addView(heading);
 
         TextView hint = new TextView(this);
-        hint.setText(calendarHint());
+        hint.setText("Lyra reúne citas, recordatorios, tareas y notas en un solo lugar.");
         hint.setTextSize(13);
         hint.setTextColor(Ui.MUTED);
         hint.setPadding(0, dp(5), 0, dp(18));
@@ -133,14 +138,17 @@ public class EditorActivity extends Activity {
 
         addLabel(form, "TIPO");
         kindSpinner = new Spinner(this);
-        kindSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item,
-                new String[]{"Cita", "Recordatorio"}));
+        kindSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, kinds));
+        kindSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) { updateKindUi(); }
+            @Override public void onNothingSelected(AdapterView<?> parent) {}
+        });
         styleInput(kindSpinner);
-        form.addView(kindSpinner, fullWidth(54));
+        form.addView(kindSpinner, fullWidth(56));
 
         addLabel(form, "TÍTULO");
         titleInput = new EditText(this);
-        titleInput.setHint("Ej. Reunión con Carlos");
+        titleInput.setHint("Ej. Reunión con Yorch");
         titleInput.setSingleLine(true);
         titleInput.setTextSize(16);
         titleInput.setTextColor(Ui.TEXT);
@@ -154,17 +162,29 @@ public class EditorActivity extends Activity {
         notesInput.setHint("Dirección, teléfono, detalles…");
         notesInput.setGravity(Gravity.TOP);
         notesInput.setMinLines(3);
-        notesInput.setMaxLines(6);
+        notesInput.setMaxLines(7);
         notesInput.setTextSize(15);
         notesInput.setTextColor(Ui.TEXT);
         notesInput.setHintTextColor(Ui.MUTED);
         notesInput.setPadding(dp(14), dp(12), dp(14), dp(12));
-        notesInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        notesInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
         notesInput.setBackground(Ui.roundedStroke(Ui.SURFACE_2, Ui.BORDER, 1, 14, this));
         form.addView(notesInput, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        addLabel(form, "FECHA Y HORA");
+        scheduleSwitch = new Switch(this);
+        scheduleSwitch.setText("Programar fecha y hora");
+        scheduleSwitch.setTextColor(Ui.TEXT);
+        scheduleSwitch.setTextSize(14);
+        scheduleSwitch.setPadding(0, dp(18), 0, dp(6));
+        scheduleSwitch.setOnCheckedChangeListener((buttonView, checked) -> updateScheduleVisibility());
+        form.addView(scheduleSwitch);
+
+        scheduleGroup = new LinearLayout(this);
+        scheduleGroup.setOrientation(LinearLayout.VERTICAL);
+        form.addView(scheduleGroup, fullWidthWrap());
+
+        addLabel(scheduleGroup, "FECHA Y HORA");
         LinearLayout dateRow = new LinearLayout(this);
         dateRow.setOrientation(LinearLayout.HORIZONTAL);
         dateButton = new Button(this);
@@ -179,31 +199,29 @@ public class EditorActivity extends Activity {
         LinearLayout.LayoutParams timeLp = new LinearLayout.LayoutParams(0, dp(54), 1f);
         timeLp.leftMargin = dp(10);
         dateRow.addView(timeButton, timeLp);
-        form.addView(dateRow);
+        scheduleGroup.addView(dateRow);
 
-        addLabel(form, "AVISO");
+        addLabel(scheduleGroup, "AVISO");
         alertSpinner = new Spinner(this);
         alertSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, alertLabels));
         styleInput(alertSpinner);
-        form.addView(alertSpinner, fullWidth(54));
+        scheduleGroup.addView(alertSpinner, fullWidth(54));
 
-        if (AppPrefs.calendarSyncEnabled(this) && AppPrefs.calendarId(this) > 0) {
-            LinearLayout calendarBadge = new LinearLayout(this);
-            calendarBadge.setOrientation(LinearLayout.HORIZONTAL);
-            calendarBadge.setGravity(Gravity.CENTER_VERTICAL);
-            calendarBadge.setPadding(dp(13), dp(11), dp(13), dp(11));
-            calendarBadge.setBackground(Ui.rounded(Ui.PRIMARY_SOFT, 15, this));
-            TextView badgeText = new TextView(this);
-            badgeText.setText("✓  Google Calendar · " + AppPrefs.calendarName(this));
-            badgeText.setTextColor(Ui.PRIMARY);
-            badgeText.setTextSize(12);
-            badgeText.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-            calendarBadge.addView(badgeText);
-            LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            badgeLp.topMargin = dp(18);
-            form.addView(calendarBadge, badgeLp);
-        }
+        calendarBadge = new LinearLayout(this);
+        calendarBadge.setOrientation(LinearLayout.HORIZONTAL);
+        calendarBadge.setGravity(Gravity.CENTER_VERTICAL);
+        calendarBadge.setPadding(dp(13), dp(11), dp(13), dp(11));
+        calendarBadge.setBackground(Ui.rounded(Ui.PRIMARY_SOFT, 15, this));
+        TextView badgeText = new TextView(this);
+        badgeText.setText("✓  Google Calendar · " + calendarLabel());
+        badgeText.setTextColor(Ui.PRIMARY);
+        badgeText.setTextSize(12);
+        badgeText.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+        calendarBadge.addView(badgeText);
+        LinearLayout.LayoutParams badgeLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        badgeLp.topMargin = dp(18);
+        form.addView(calendarBadge, badgeLp);
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
@@ -229,23 +247,20 @@ public class EditorActivity extends Activity {
         setContentView(scroll);
     }
 
-    private String calendarHint() {
-        if (AppPrefs.calendarSyncEnabled(this) && AppPrefs.calendarId(this) > 0) {
-            return "Se guardará en este teléfono y también en " + AppPrefs.calendarName(this) + ".";
-        }
-        if (item.calendarEventId > 0) return "Este evento está vinculado a Google Calendar. La sincronización está pausada.";
-        return "Se guardará en este teléfono. Puedes conectar Google Calendar desde Configuración.";
-    }
-
-    private void styleInput(android.view.View view) {
-        view.setBackground(Ui.roundedStroke(Ui.SURFACE_2, Ui.BORDER, 1, 14, this));
-        view.setPadding(dp(10), 0, dp(10), 0);
+    private String calendarLabel() {
+        String account = AppPrefs.calendarAccount(this);
+        if (account != null && !account.trim().isEmpty()) return account;
+        String name = AppPrefs.calendarName(this);
+        return name == null || name.trim().isEmpty() ? "conectado" : name;
     }
 
     private void fillFields() {
-        kindSpinner.setSelection("Cita".equals(item.kind) ? 0 : 1);
+        int kindIndex = 1;
+        for (int i = 0; i < kinds.length; i++) if (kinds[i].equals(item.kind)) kindIndex = i;
+        kindSpinner.setSelection(kindIndex);
         titleInput.setText(item.title);
         notesInput.setText(item.notes);
+        scheduleSwitch.setChecked(item.id == 0 ? (item.eventTime > 0 || defaultScheduleForKind(item.kind)) : item.hasTime);
         updateDateTimeButtons();
 
         int selectedIndex = 0;
@@ -256,6 +271,42 @@ public class EditorActivity extends Activity {
             }
         }
         alertSpinner.setSelection(selectedIndex);
+    }
+
+    private boolean defaultScheduleForKind(String kind) {
+        return !"Nota".equals(kind) && !"Tarea".equals(kind);
+    }
+
+    private void updateKindUi() {
+        if (kindSpinner == null || scheduleSwitch == null) return;
+        String kind = (String) kindSpinner.getSelectedItem();
+        boolean required = "Cita".equals(kind) || "Recordatorio".equals(kind);
+        if (required) {
+            scheduleSwitch.setChecked(true);
+            scheduleSwitch.setEnabled(false);
+            scheduleSwitch.setAlpha(0.7f);
+        } else if ("Nota".equals(kind)) {
+            scheduleSwitch.setChecked(false);
+            scheduleSwitch.setEnabled(false);
+            scheduleSwitch.setAlpha(0.7f);
+        } else {
+            scheduleSwitch.setEnabled(true);
+            scheduleSwitch.setAlpha(1f);
+        }
+        if ("Nota".equals(kind)) titleInput.setHint("Ej. Código de pintura A527");
+        else if ("Tarea".equals(kind)) titleInput.setHint("Ej. Enviar propuesta a Yorch");
+        else titleInput.setHint("Ej. Reunión con Yorch");
+        updateScheduleVisibility();
+    }
+
+    private void updateScheduleVisibility() {
+        if (scheduleGroup == null || calendarBadge == null || kindSpinner == null || scheduleSwitch == null) return;
+        boolean scheduled = scheduleSwitch.isChecked();
+        String kind = (String) kindSpinner.getSelectedItem();
+        scheduleGroup.setVisibility(scheduled ? View.VISIBLE : View.GONE);
+        boolean calendarEligible = scheduled && ("Cita".equals(kind) || "Recordatorio".equals(kind))
+                && AppPrefs.calendarSyncEnabled(this) && AppPrefs.calendarId(this) > 0;
+        calendarBadge.setVisibility(calendarEligible ? View.VISIBLE : View.GONE);
     }
 
     private void pickDate() {
@@ -278,6 +329,7 @@ public class EditorActivity extends Activity {
     }
 
     private void updateDateTimeButtons() {
+        if (dateButton == null || timeButton == null) return;
         dateButton.setText(DateFormat.getDateInstance(DateFormat.MEDIUM).format(selected.getTime()));
         timeButton.setText(DateFormat.getTimeInstance(DateFormat.SHORT).format(selected.getTime()));
     }
@@ -290,32 +342,46 @@ public class EditorActivity extends Activity {
             return;
         }
 
-        long eventTime = selected.getTimeInMillis();
-        if (eventTime <= System.currentTimeMillis()) {
+        String kind = (String) kindSpinner.getSelectedItem();
+        boolean hasTime = scheduleSwitch.isChecked();
+        long eventTime = hasTime ? selected.getTimeInMillis() : 0;
+        int remindMinutes = hasTime ? alertValues[alertSpinner.getSelectedItemPosition()] : -1;
+
+        if (hasTime && eventTime <= System.currentTimeMillis()) {
             Toast.makeText(this, "La fecha y hora deben estar en el futuro.", Toast.LENGTH_LONG).show();
             return;
         }
-
-        int remindMinutes = alertValues[alertSpinner.getSelectedItemPosition()];
-        long alertTime = remindMinutes < 0 ? eventTime : eventTime - (remindMinutes * 60_000L);
-        if (remindMinutes >= 0 && alertTime <= System.currentTimeMillis()) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Ese aviso ya pasó")
-                    .setMessage("Elige un aviso más cercano a la hora del evento o usa \"Sin aviso\".")
-                    .setPositiveButton("Entendido", null)
-                    .show();
-            return;
+        if (hasTime && remindMinutes >= 0) {
+            long alertTime = eventTime - (remindMinutes * 60_000L);
+            if (alertTime <= System.currentTimeMillis()) {
+                new AlertDialog.Builder(this)
+                        .setTitle("Ese aviso ya pasó")
+                        .setMessage("Elige un aviso más cercano a la hora o usa \"Sin aviso\".")
+                        .setPositiveButton("Entendido", null)
+                        .show();
+                return;
+            }
         }
 
-        item.kind = (String) kindSpinner.getSelectedItem();
+        boolean wasCalendarLinked = item.calendarEventId > 0;
+        item.kind = kind;
         item.title = title;
         item.notes = notesInput.getText().toString().trim();
+        item.hasTime = hasTime;
         item.eventTime = eventTime;
         item.remindMinutes = remindMinutes;
+        item.completed = false;
+
+        if (!item.canSyncToCalendar() && wasCalendarLinked) {
+            CalendarBridge.deleteLinkedEvent(this, item);
+            item.calendarEventId = 0;
+            item.calendarId = 0;
+        }
+
         item.id = db.save(item);
         AlarmScheduler.schedule(this, item);
 
-        boolean syncRequested = AppPrefs.calendarSyncEnabled(this) && AppPrefs.calendarId(this) > 0;
+        boolean syncRequested = item.canSyncToCalendar() && AppPrefs.calendarSyncEnabled(this) && AppPrefs.calendarId(this) > 0;
         boolean calendarSaved = syncRequested && CalendarBridge.saveToSelectedCalendar(this, db, item);
         if (syncRequested && !calendarSaved) {
             Toast.makeText(this, "Guardado en Lyra, pero Google Calendar no respondió.", Toast.LENGTH_LONG).show();
@@ -323,6 +389,11 @@ public class EditorActivity extends Activity {
             Toast.makeText(this, calendarSaved ? "Guardado y sincronizado" : "Guardado", Toast.LENGTH_SHORT).show();
         }
         finish();
+    }
+
+    private void styleInput(View view) {
+        view.setBackground(Ui.roundedStroke(Ui.SURFACE_2, Ui.BORDER, 1, 14, this));
+        view.setPadding(dp(10), 0, dp(10), 0);
     }
 
     private void addLabel(LinearLayout root, String text) {
@@ -333,6 +404,10 @@ public class EditorActivity extends Activity {
 
     private LinearLayout.LayoutParams fullWidth(int heightDp) {
         return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(heightDp));
+    }
+
+    private LinearLayout.LayoutParams fullWidthWrap() {
+        return new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     }
 
     private int dp(int value) {

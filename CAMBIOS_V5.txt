@@ -1,0 +1,33 @@
+LYRA V5 · CONSOLIDACIÓN
+Versión 0.5.0
+
+Objetivo: hacer que Lyra sea un asistente personal más sólido antes de agregar integraciones adicionales.
+
+NOVEDADES PRINCIPALES
+- Nueva pantalla “Hoy con Lyra” con siguiente evento, resumen de pendientes y elementos que necesitan atención.
+- Bandeja universal con cuatro tipos: Cita, Recordatorio, Tarea y Nota.
+- Tareas y notas pueden existir sin fecha/hora. Citas y recordatorios siempre requieren fecha/hora.
+- Conversación por voz ampliada para crear citas, recordatorios, tareas y notas.
+- Memoria estructurada y controlable: añadir, editar y borrar lo que Lyra recuerda.
+- Orden por voz “recuerda que…”.
+- Lyra usa recuerdos del tipo “Yorch es mi proveedor” para resolver expresiones como “mi proveedor”.
+- Acciones por voz: marcar como hecho, eliminar/cancelar, reprogramar y posponer.
+- Notificaciones con acciones: Hecho, 10 min, 1 hora y Reprogramar.
+- El modo de activación “Lyra” ya no exige reconocimiento local; prioriza reconocimiento en dispositivo y usa el servicio de Android como respaldo.
+- Corrección de conflicto entre el micrófono manual y el servicio de activación: el wake word se pausa mientras hablas desde la app y se reanuda después.
+- El servicio conserva la preferencia de activación si Android lo detiene; solo se desactiva cuando el usuario lo apaga.
+- Interfaz compacta y moderna, con mejor jerarquía visual y menos elementos redundantes.
+- Ejemplos de interfaz actualizados a “Yorch”.
+- Google Calendar se mantiene para citas y recordatorios programados; tareas y notas permanecen locales en esta versión.
+
+IMPORTANTE
+El modo de palabra de activación sigue dependiendo de SpeechRecognizer de Android. Se mejoró su compatibilidad y recuperación de errores, pero un detector dedicado de wake word seguiría siendo la opción profesional para una versión comercial de escucha permanente.
+
+REVISIONES DE CALIDAD ANTES DE ENTREGA
+- Lyra ya no decide AM/PM cuando la hora es ambigua: pregunta “¿De la mañana o de la tarde?”.
+- Las respuestas de confirmación se validan por palabras completas; “no” o “sí” ya no se activan por aparecer dentro de otra palabra.
+- Se añadió reconocimiento de respuestas naturales como “10 de la mañana” en conversaciones de varios turnos.
+- El perfil libre también puede aprovechar hechos simples como “Yorch es mi proveedor”.
+- Se corrigió la cancelación de alarmas pospuestas para que solo exista un snooze activo por elemento.
+- Se corrigió un caso nulo defensivo en el programador de alarmas.
+- Los mensajes de error del micrófono se muestran temporalmente y luego vuelven al estado normal.
