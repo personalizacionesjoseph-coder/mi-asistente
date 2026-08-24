@@ -11,6 +11,10 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 
 import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Locale;
 
 public final class NotificationHelper {
     private static final String CHANNEL_ID = "assistant_reminders";
@@ -50,21 +54,38 @@ public final class NotificationHelper {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
         );
 
-        String when = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(item.eventTime);
-        String body = item.notes == null || item.notes.trim().isEmpty()
-                ? "Programado para " + when
-                : item.notes.trim();
+        String when = friendlyWhen(item.eventTime);
+        String notes = item.notes == null ? "" : item.notes.trim();
+        String body = notes.isEmpty() ? when : when + " · " + notes;
 
         Notification notification = new Notification.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification)
-                .setContentTitle(item.kind + ": " + item.title)
+                .setContentTitle(item.title)
                 .setContentText(body)
-                .setStyle(new Notification.BigTextStyle().bigText(body + "\n" + when))
+                .setStyle(new Notification.BigTextStyle().bigText(body))
+                .setSubText(item.kind)
                 .setContentIntent(contentIntent)
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_REMINDER)
                 .build();
 
         manager.notify(10_000 + (int) (item.id % 20_000), notification);
+    }
+
+    private static String friendlyWhen(long millis) {
+        Calendar event = Calendar.getInstance();
+        event.setTimeInMillis(millis);
+        Calendar today = Calendar.getInstance();
+        String time = DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(millis));
+        if (sameDay(event, today)) return "Hoy · " + time;
+        Calendar tomorrow = (Calendar) today.clone();
+        tomorrow.add(Calendar.DAY_OF_YEAR, 1);
+        if (sameDay(event, tomorrow)) return "Mañana · " + time;
+        return new SimpleDateFormat("d MMM · h:mm a", new Locale("es", "ES")).format(new Date(millis));
+    }
+
+    private static boolean sameDay(Calendar a, Calendar b) {
+        return a.get(Calendar.YEAR) == b.get(Calendar.YEAR)
+                && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR);
     }
 }

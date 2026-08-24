@@ -3,10 +3,14 @@ package com.joseph.miasistente;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.role.RoleManager;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.os.Build;
 import android.os.Bundle;
+import android.speech.SpeechRecognizer;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -23,10 +27,16 @@ import java.util.List;
 
 public class SettingsActivity extends Activity {
     private static final int REQ_CALENDAR = 70;
+    private static final int REQ_WAKE_AUDIO = 71;
+    private static final int REQ_ASSISTANT_ROLE = 72;
+
     private LinearLayout root;
     private TextView calendarStatus;
     private Switch calendarSyncSwitch;
     private Button syncNowButton;
+    private Switch wakeWordSwitch;
+    private TextView wakeStatus;
+    private Button assistantRoleButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -34,6 +44,13 @@ public class SettingsActivity extends Activity {
         super.onCreate(savedInstanceState);
         Ui.configureBars(this);
         buildUi();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        updateWakeStatus();
+        updateAssistantRoleStatus();
     }
 
     private void buildUi() {
@@ -59,25 +76,177 @@ public class SettingsActivity extends Activity {
         back.setOnClickListener(v -> finish());
         root.addView(back, new LinearLayout.LayoutParams(dp(110), dp(42)));
 
-        TextView title = text("Personaliza tu asistente", 30, Ui.TEXT, true);
+        TextView title = text("Configura Lyra", 30, Ui.TEXT, true);
         root.addView(title);
-        TextView subtitle = text("Ajusta el estilo, el orden de Inicio y la conexión con Google Calendar.", 14, Ui.MUTED, false);
+        TextView subtitle = text("Tu perfil, voz, apariencia, Inicio y Google Calendar en un solo lugar.", 14, Ui.MUTED, false);
         subtitle.setPadding(0, dp(5), 0, dp(20));
         root.addView(subtitle);
 
+        addProfileCard();
+        addVoiceActivationCard();
         addAppearanceCard();
         addHomeCard();
         addCalendarCard();
 
-        TextView note = text("Los cambios de apariencia se aplican al volver a Inicio. La sincronización usa el calendario que ya está configurado en tu teléfono.", 12, Ui.MUTED, false);
+        TextView note = text("Tu perfil se guarda localmente. El modo “Di Lyra” es experimental y usa reconocimiento de voz en el dispositivo con una notificación persistente.", 12, Ui.MUTED, false);
         note.setPadding(dp(4), dp(18), dp(4), 0);
         root.addView(note);
 
         setContentView(scroll);
     }
 
+    private void addProfileCard() {
+        LinearLayout card = sectionCard("MI PERFIL", "Dale contexto a Lyra sin enviar tus datos a un servidor.");
+
+        TextView summary = text(profileSummary(), 14, Ui.TEXT, false);
+        summary.setPadding(0, dp(15), 0, dp(10));
+        card.addView(summary);
+
+        Button edit = new Button(this);
+        edit.setText(AppPrefs.profileName(this).isEmpty() ? "Crear mi perfil" : "Editar mi perfil");
+        Ui.stylePrimaryButton(edit);
+        edit.setOnClickListener(v -> startActivity(new Intent(this, ProfileActivity.class)));
+        card.addView(edit, fullWidth(52));
+        addCardToRoot(card);
+    }
+
+    private String profileSummary() {
+        String preferred = AppPrefs.preferredName(this);
+        if (preferred.isEmpty()) {
+            return "Todavía no has configurado un perfil. Lyra puede usar tu nombre, horario habitual y recordatorio predeterminado.";
+        }
+        return "Lyra te llama “" + preferred + "” · horario " + AppPrefs.workStart(this) + "–" + AppPrefs.workEnd(this)
+                + " · aviso predeterminado: " + reminderLabel(AppPrefs.defaultReminderMinutes(this)) + ".";
+    }
+
+    private void addVoiceActivationCard() {
+        LinearLayout card = sectionCard("VOZ Y ACTIVACIÓN", "Habla con Lyra sin tener que buscar el botón del micrófono.");
+
+        wakeStatus = text("", 13, Ui.MUTED, false);
+        wakeStatus.setPadding(0, dp(14), 0, dp(6));
+        card.addView(wakeStatus);
+
+        wakeWordSwitch = new Switch(this);
+        wakeWordSwitch.setText("Activar al decir “Lyra”");
+        wakeWordSwitch.setTextColor(Ui.TEXT);
+        wakeWordSwitch.setTextSize(15);
+        wakeWordSwitch.setPadding(0, dp(8), 0, dp(8));
+        wakeWordSwitch.setChecked(AppPrefs.wakeWordEnabled(this));
+        wakeWordSwitch.setOnCheckedChangeListener((buttonView, checked) -> {
+            if (checked) enableWakeWord();
+            else disableWakeWord();
+        });
+        card.addView(wakeWordSwitch);
+
+        TextView warning = text("Experimental: funciona solo si Android ofrece reconocimiento en el dispositivo. Mantiene el micrófono en un servicio visible y puede consumir más batería.", 12, Ui.MUTED, false);
+        warning.setPadding(0, dp(2), 0, dp(12));
+        card.addView(warning);
+
+        assistantRoleButton = new Button(this);
+        assistantRoleButton.setText("Usar Lyra como asistente del sistema");
+        Ui.styleSecondaryButton(assistantRoleButton);
+        assistantRoleButton.setOnClickListener(v -> requestAssistantRole());
+        card.addView(assistantRoleButton, fullWidth(52));
+
+        TextView systemHint = text("Esto permite abrir Lyra con el gesto o botón de asistente que admita tu teléfono. No sustituye por sí solo la palabra de activación.", 12, Ui.MUTED, false);
+        systemHint.setPadding(0, dp(9), 0, 0);
+        card.addView(systemHint);
+
+        updateWakeStatus();
+        updateAssistantRoleStatus();
+        addCardToRoot(card);
+    }
+
+    private void enableWakeWord() {
+        if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+            setWakeSwitchSilently(false);
+            new AlertDialog.Builder(this)
+                    .setTitle("No disponible en este teléfono")
+                    .setMessage("Para el modo “Di Lyra” esta versión exige reconocimiento de voz local de Android 12 o superior. Así evitamos dejar un reconocimiento remoto escuchando continuamente.")
+                    .setPositiveButton("Entendido", null)
+                    .show();
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            setWakeSwitchSilently(false);
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_WAKE_AUDIO);
+            return;
+        }
+        AppPrefs.setWakeWordEnabled(this, true);
+        Intent service = new Intent(this, WakeWordService.class);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(service); else startService(service);
+        updateWakeStatus();
+    }
+
+    private void disableWakeWord() {
+        AppPrefs.setWakeWordEnabled(this, false);
+        stopService(new Intent(this, WakeWordService.class));
+        updateWakeStatus();
+    }
+
+    private void setWakeSwitchSilently(boolean checked) {
+        if (wakeWordSwitch == null) return;
+        wakeWordSwitch.setOnCheckedChangeListener(null);
+        wakeWordSwitch.setChecked(checked);
+        wakeWordSwitch.setOnCheckedChangeListener((buttonView, enabled) -> {
+            if (enabled) enableWakeWord(); else disableWakeWord();
+        });
+    }
+
+    private void updateWakeStatus() {
+        if (wakeStatus == null || wakeWordSwitch == null) return;
+        boolean enabled = AppPrefs.wakeWordEnabled(this);
+        setWakeSwitchSilently(enabled);
+        if (enabled && WakeWordService.isRunning()) {
+            wakeStatus.setText("● Escucha activa · di “Lyra” y luego tu instrucción.");
+            wakeStatus.setTextColor(Ui.PRIMARY);
+        } else if (enabled) {
+            wakeStatus.setText("Activado · iniciando escucha. Si no aparece la notificación en unos segundos, apaga y vuelve a encender esta opción.");
+            wakeStatus.setTextColor(Ui.MUTED);
+        } else if (Build.VERSION.SDK_INT < 31) {
+            wakeStatus.setText("No disponible: requiere Android 12 o superior para reconocimiento local.");
+            wakeStatus.setTextColor(Ui.MUTED);
+        } else if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
+            wakeStatus.setText("Este teléfono no ofrece reconocimiento de voz local compatible.");
+            wakeStatus.setTextColor(Ui.MUTED);
+        } else {
+            wakeStatus.setText("Desactivado. Puedes seguir usando el micrófono dentro de Lyra.");
+            wakeStatus.setTextColor(Ui.MUTED);
+        }
+    }
+
+    private void requestAssistantRole() {
+        if (Build.VERSION.SDK_INT < 29) {
+            Toast.makeText(this, "El rol de asistente requiere Android 10 o superior.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        RoleManager roleManager = (RoleManager) getSystemService(ROLE_SERVICE);
+        if (roleManager == null || !roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT)) {
+            Toast.makeText(this, "Tu versión de Android no ofrece un rol de asistente seleccionable.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (roleManager.isRoleHeld(RoleManager.ROLE_ASSISTANT)) {
+            Toast.makeText(this, "Lyra ya es tu asistente del sistema.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        startActivityForResult(roleManager.createRequestRoleIntent(RoleManager.ROLE_ASSISTANT), REQ_ASSISTANT_ROLE);
+    }
+
+    private void updateAssistantRoleStatus() {
+        if (assistantRoleButton == null) return;
+        if (Build.VERSION.SDK_INT < 29) {
+            assistantRoleButton.setEnabled(false);
+            assistantRoleButton.setText("Asistente del sistema · no disponible");
+            return;
+        }
+        RoleManager roleManager = (RoleManager) getSystemService(ROLE_SERVICE);
+        boolean held = roleManager != null && roleManager.isRoleAvailable(RoleManager.ROLE_ASSISTANT)
+                && roleManager.isRoleHeld(RoleManager.ROLE_ASSISTANT);
+        assistantRoleButton.setText(held ? "✓ Lyra es el asistente del sistema" : "Usar Lyra como asistente del sistema");
+    }
+
     private void addAppearanceCard() {
-        LinearLayout card = sectionCard("APARIENCIA", "Hazla tuya sin romper la interfaz.");
+        LinearLayout card = sectionCard("APARIENCIA", "Moderna, personalizable y sin convertir Inicio en un rompecabezas.");
 
         TextView themeLabel = Ui.label(this, "TEMA");
         themeLabel.setPadding(0, dp(16), 0, dp(8));
@@ -340,7 +509,22 @@ public class SettingsActivity extends Activity {
             if (granted) showCalendarChooser();
             else Toast.makeText(this, "Sin esos permisos no puedo sincronizar con Google Calendar.", Toast.LENGTH_LONG).show();
             updateCalendarStatus();
+        } else if (requestCode == REQ_WAKE_AUDIO) {
+            boolean granted = grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (granted) {
+                setWakeSwitchSilently(true);
+                enableWakeWord();
+            } else {
+                setWakeSwitchSilently(false);
+                Toast.makeText(this, "Sin permiso de micrófono no puedo detectar la palabra Lyra.", Toast.LENGTH_LONG).show();
+            }
         }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_ASSISTANT_ROLE) updateAssistantRoleStatus();
     }
 
     private LinearLayout sectionCard(String label, String subtitle) {
@@ -406,6 +590,14 @@ public class SettingsActivity extends Activity {
         if (AppPrefs.SECTION_VOICE.equals(id)) return "Micrófono y respuestas habladas";
         if (AppPrefs.SECTION_QUICK.equals(id)) return "Crear cita o recordatorio";
         return "Hoy y próximos eventos";
+    }
+
+    private String reminderLabel(int minutes) {
+        if (minutes < 0) return "sin aviso";
+        if (minutes == 0) return "a la hora";
+        if (minutes == 60) return "1 hora antes";
+        if (minutes == 1440) return "1 día antes";
+        return minutes + " min antes";
     }
 
     private TextView text(String value, float size, int color, boolean bold) {

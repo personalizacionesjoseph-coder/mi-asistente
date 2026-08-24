@@ -9,10 +9,13 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -50,6 +53,12 @@ public class MainActivity extends Activity {
     private boolean fallbackTried = false;
     private TextToSpeech textToSpeech;
     private boolean ttsReady = false;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private String pendingVoiceText = "";
+    private VoiceCommand pendingVoiceCommand;
+    private VoiceCommand pendingConfirmation;
+    private AlertDialog voiceConfirmDialog;
+    private boolean autoStartFromAssist = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -62,6 +71,7 @@ public class MainActivity extends Activity {
         buildUi();
         initTextToSpeech();
         requestNotificationPermissionIfNeeded();
+        autoStartFromAssist = Intent.ACTION_ASSIST.equals(getIntent().getAction());
     }
 
     @Override
@@ -74,10 +84,17 @@ public class MainActivity extends Activity {
         }
         refreshAgenda();
         pullCalendarChanges();
+        ensureWakeServiceIfEnabled();
+        if (autoStartFromAssist) {
+            autoStartFromAssist = false;
+            mainHandler.postDelayed(this::startVoiceRecognition, 450);
+        }
     }
 
     @Override
     protected void onDestroy() {
+        mainHandler.removeCallbacksAndMessages(null);
+        if (voiceConfirmDialog != null) voiceConfirmDialog.dismiss();
         if (speechRecognizer != null) {
             speechRecognizer.destroy();
             speechRecognizer = null;
@@ -123,7 +140,9 @@ public class MainActivity extends Activity {
         copy.setOrientation(LinearLayout.VERTICAL);
 
         TextView eyebrow = new TextView(this);
-        eyebrow.setText(greeting().toUpperCase(Locale.getDefault()));
+        String preferred = AppPrefs.preferredName(this);
+        String greetingText = greeting() + (preferred.isEmpty() ? "" : ", " + preferred);
+        eyebrow.setText(greetingText.toUpperCase(Locale.getDefault()));
         eyebrow.setTextSize(11);
         eyebrow.setLetterSpacing(0.08f);
         eyebrow.setTextColor(Ui.PRIMARY);
@@ -160,6 +179,13 @@ public class MainActivity extends Activity {
         statusRow.setOrientation(LinearLayout.HORIZONTAL);
         statusRow.setPadding(0, dp(16), 0, dp(2));
         statusRow.addView(statusChip("●  " + todayCount() + " hoy", Ui.PRIMARY_SOFT, Ui.PRIMARY));
+        if (AppPrefs.wakeWordEnabled(this)) {
+            TextView wakeChip = statusChip("◉  Di Lyra", Ui.SURFACE, Ui.PRIMARY);
+            LinearLayout.LayoutParams wakeLp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
+            wakeLp.leftMargin = dp(8);
+            statusRow.addView(wakeChip, wakeLp);
+        }
         if (AppPrefs.calendarSyncEnabled(this) && AppPrefs.calendarId(this) > 0) {
             TextView calendarChip = statusChip("✓  Google Calendar", Ui.SURFACE, Ui.MUTED);
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
@@ -222,7 +248,9 @@ public class MainActivity extends Activity {
         voiceCard.addView(ask);
 
         TextView helper = new TextView(this);
-        helper.setText("Dime una cita, un recordatorio o pregúntame qué tienes pendiente.");
+        helper.setText(AppPrefs.wakeWordEnabled(this)
+                ? "Di “Lyra” para activarme o toca el micrófono. Si falta un dato, te lo preguntaré."
+                : "Dime una cita o recordatorio. Si falta fecha, hora o nombre, te lo preguntaré.");
         helper.setTextSize(13);
         helper.setTextColor(Color.argb(220, 255, 255, 255));
         helper.setGravity(Gravity.CENTER);
@@ -240,7 +268,7 @@ public class MainActivity extends Activity {
         voiceCard.addView(micButton, new LinearLayout.LayoutParams(dp(78), dp(78)));
 
         voiceStatus = new TextView(this);
-        voiceStatus.setText("Ej.: “Agéndame una reunión mañana a las 3”");
+        voiceStatus.setText("Ej.: “Quiero una cita con Yorsh” · Lyra preguntará lo que falte");
         voiceStatus.setTextSize(12);
         voiceStatus.setTextColor(Color.argb(220, 255, 255, 255));
         voiceStatus.setGravity(Gravity.CENTER);
@@ -539,63 +567,163 @@ public class MainActivity extends Activity {
 
     private void handleVoiceText(String spoken) {
         setListeningUi(false, "Escuché: “" + spoken + "”");
-        VoiceCommand command = VoiceCommandParser.parse(spoken, System.currentTimeMillis());
+        String normalized = VoiceCommandParser.normalizeForIntent(spoken);
+
+        if (pendingConfirmation != null) {
+            if (containsAny(normalized, "si", "guardar", "guardalo", "confirmar", "confirmo", "dale")) {
+                VoiceCommand toSave = pendingConfirmation;
+                clearVoiceConfirmation();
+                saveVoiceCommand(toSave);
+            } else if (containsAny(normalized, "no", "cancelar", "cancela", "olvidalo")) {
+                clearVoiceConfirmation();
+                pendingVoiceText = "";
+                pendingVoiceCommand = null;
+                speak("De acuerdo. No lo guardé.");
+                showVoiceMessage("Cancelado", true);
+            } else if (containsAny(normalized, "editar", "cambiar")) {
+                VoiceCommand toEdit = pendingConfirmation;
+                clearVoiceConfirmation();
+                openVoiceCommandInEditor(toEdit);
+            } else {
+                promptAndListen("Di guardar, editar o cancelar.");
+            }
+            return;
+        }
+
+        if (!pendingVoiceText.isEmpty() && containsAny(normalized, "cancelar", "cancela", "olvidalo", "olvida eso")) {
+            pendingVoiceText = "";
+            pendingVoiceCommand = null;
+            showVoiceMessage("Conversación cancelada", true);
+            speak("De acuerdo. Cancelado.");
+            return;
+        }
+
+        String merged = pendingVoiceText.isEmpty() ? spoken.trim() : pendingVoiceText + " " + spoken.trim();
+        long parseNow = System.currentTimeMillis();
+        merged = UserContextResolver.enrich(this, merged, parseNow);
+        VoiceCommand command = VoiceCommandParser.parse(merged, parseNow);
 
         switch (command.action) {
             case QUERY_TODAY:
+                pendingVoiceText = "";
+                pendingVoiceCommand = null;
                 speakAgendaForDay(0, "hoy");
                 return;
             case QUERY_TOMORROW:
+                pendingVoiceText = "";
+                pendingVoiceCommand = null;
                 speakAgendaForDay(1, "mañana");
                 return;
             case QUERY_NEXT:
+                pendingVoiceText = "";
+                pendingVoiceCommand = null;
                 speakNextEvent();
                 return;
             case CREATE:
-                if (command.eventTime <= 0 || !command.issue.isEmpty()) {
-                    String issue = command.issue.isEmpty() ? "No pude entender la fecha y la hora." : command.issue;
-                    showVoiceMessage(issue + "\n\nPrueba: “Recuérdame mañana a las 3 llamar a Carlos”.", true);
-                    speak(issue);
+                if (!command.issue.isEmpty()) {
+                    pendingVoiceText = "";
+                    pendingVoiceCommand = null;
+                    showVoiceMessage(command.issue, true);
+                    speak(command.issue);
                     return;
                 }
+
+                pendingVoiceText = merged;
+                pendingVoiceCommand = command;
+                if (command.missingTitle) {
+                    promptAndListen("¿Qué nombre quieres ponerle?");
+                    return;
+                }
+                if (command.missingDate) {
+                    promptAndListen("¿Para qué día?");
+                    return;
+                }
+                if (command.missingTime) {
+                    promptAndListen("¿A qué hora?");
+                    return;
+                }
+
+                pendingVoiceText = "";
+                pendingVoiceCommand = null;
                 confirmVoiceCommand(command);
                 return;
             default:
-                showVoiceMessage("No entendí la instrucción. Puedes pedirme que cree un recordatorio o preguntarme qué tienes hoy.", true);
+                showVoiceMessage("No entendí la instrucción. Puedes pedirme una cita, un recordatorio o preguntarme qué tienes hoy.", true);
         }
+    }
+
+    private void promptAndListen(String prompt) {
+        if (voiceStatus != null) voiceStatus.setText(prompt);
+        speak(prompt, true);
     }
 
     private void confirmVoiceCommand(VoiceCommand command) {
         String when = DateFormat.getDateTimeInstance(DateFormat.FULL, DateFormat.SHORT, new Locale("es", "ES"))
                 .format(new Date(command.eventTime));
         String ambiguity = command.timeWasAmbiguous
-                ? "\n\nInterpreté la hora en formato de tarde. Revísala antes de guardar."
+                ? "\n\nInterpreté la hora como de la tarde. Revísala antes de guardar."
                 : "";
         String calendar = AppPrefs.calendarSyncEnabled(this) && AppPrefs.calendarId(this) > 0
                 ? "\n\nTambién se enviará a Google Calendar." : "";
 
-        new AlertDialog.Builder(this)
+        pendingConfirmation = command;
+        AlertDialog.Builder builder = new AlertDialog.Builder(this)
                 .setTitle("¿Lo agendo?")
-                .setMessage(command.kind + ": " + command.title + "\n" + when + ambiguity + calendar)
-                .setNegativeButton("Cancelar", null)
-                .setNeutralButton("Editar", (d, w) -> {
-                    Intent intent = new Intent(this, EditorActivity.class);
-                    intent.putExtra("prefill_kind", command.kind);
-                    intent.putExtra("prefill_title", command.title);
-                    intent.putExtra("prefill_time", command.eventTime);
-                    startActivity(intent);
+                .setMessage(command.title + "\n" + when + ambiguity + calendar)
+                .setNegativeButton("Cancelar", (d, w) -> {
+                    clearVoiceConfirmation();
+                    speak("Cancelado.");
                 })
-                .setPositiveButton("Guardar", (d, w) -> saveVoiceCommand(command))
-                .show();
+                .setNeutralButton("Editar", (d, w) -> {
+                    VoiceCommand edit = command;
+                    clearVoiceConfirmation();
+                    openVoiceCommandInEditor(edit);
+                })
+                .setPositiveButton("Guardar", (d, w) -> {
+                    VoiceCommand save = command;
+                    clearVoiceConfirmation();
+                    saveVoiceCommand(save);
+                });
+        voiceConfirmDialog = builder.create();
+        voiceConfirmDialog.setOnDismissListener(d -> {
+            if (voiceConfirmDialog != null && !voiceConfirmDialog.isShowing()) voiceConfirmDialog = null;
+        });
+        voiceConfirmDialog.show();
+
+        String spokenSummary = command.title + ", " + DateFormat.getDateTimeInstance(
+                DateFormat.MEDIUM, DateFormat.SHORT, new Locale("es", "ES")).format(new Date(command.eventTime))
+                + ". ¿Lo guardo? Di guardar, editar o cancelar.";
+        promptAndListen(spokenSummary);
+    }
+
+    private void clearVoiceConfirmation() {
+        pendingConfirmation = null;
+        if (voiceConfirmDialog != null) {
+            AlertDialog dialog = voiceConfirmDialog;
+            voiceConfirmDialog = null;
+            if (dialog.isShowing()) dialog.dismiss();
+        }
+        if (speechRecognizer != null) {
+            try { speechRecognizer.cancel(); } catch (Exception ignored) {}
+        }
+    }
+
+    private void openVoiceCommandInEditor(VoiceCommand command) {
+        if (command == null) return;
+        Intent intent = new Intent(this, EditorActivity.class);
+        intent.putExtra("prefill_kind", command.kind);
+        intent.putExtra("prefill_title", command.title);
+        intent.putExtra("prefill_time", command.eventTime);
+        startActivity(intent);
     }
 
     private void saveVoiceCommand(VoiceCommand command) {
         ReminderItem item = new ReminderItem();
         item.kind = command.kind;
         item.title = command.title;
-        item.notes = "Creado por voz";
+        item.notes = "";
         item.eventTime = command.eventTime;
-        item.remindMinutes = 0;
+        item.remindMinutes = AppPrefs.defaultReminderMinutes(this);
         item.id = db.save(item);
         AlarmScheduler.schedule(this, item);
         boolean calendarSaved = CalendarBridge.saveToSelectedCalendar(this, db, item);
@@ -663,13 +791,35 @@ public class MainActivity extends Activity {
             if (status == TextToSpeech.SUCCESS) {
                 int result = textToSpeech.setLanguage(new Locale("es", "ES"));
                 ttsReady = result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED;
+                textToSpeech.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                    @Override public void onStart(String utteranceId) {}
+                    @Override public void onError(String utteranceId) { handleTtsDone(utteranceId); }
+                    @Override public void onDone(String utteranceId) { handleTtsDone(utteranceId); }
+                });
             }
         });
     }
 
+    private void handleTtsDone(String utteranceId) {
+        if (utteranceId != null && utteranceId.startsWith("followup:")) {
+            mainHandler.postDelayed(this::startVoiceRecognition, 250);
+        }
+    }
+
     private void speak(String text) {
+        speak(text, false);
+    }
+
+    private void speak(String text, boolean listenAfter) {
+        if (!AppPrefs.voiceRepliesEnabled(this)) {
+            if (listenAfter) mainHandler.postDelayed(this::startVoiceRecognition, 350);
+            return;
+        }
         if (ttsReady && textToSpeech != null) {
-            textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, "assistant_reply");
+            String id = (listenAfter ? "followup:" : "assistant:") + System.currentTimeMillis();
+            textToSpeech.speak(text, TextToSpeech.QUEUE_FLUSH, null, id);
+        } else if (listenAfter) {
+            mainHandler.postDelayed(this::startVoiceRecognition, 650);
         }
     }
 
@@ -701,6 +851,16 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void ensureWakeServiceIfEnabled() {
+        if (!AppPrefs.wakeWordEnabled(this) || WakeWordService.isRunning()) return;
+        if (Build.VERSION.SDK_INT < 31 || !SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) return;
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) return;
+        try {
+            startForegroundService(new Intent(this, WakeWordService.class));
+        } catch (RuntimeException ignored) {
+        }
+    }
+
     private void pullCalendarChanges() {
         if (!AppPrefs.calendarSyncEnabled(this) || !CalendarBridge.hasPermissions(this)) return;
         new Thread(() -> {
@@ -721,6 +881,11 @@ public class MainActivity extends Activity {
                 showVoiceMessage("Sin permiso de micrófono no puedo recibir instrucciones por voz.", true);
             }
         }
+    }
+
+    private boolean containsAny(String text, String... values) {
+        for (String value : values) if (text.contains(value)) return true;
+        return false;
     }
 
     private String greeting() {

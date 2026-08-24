@@ -1,28 +1,44 @@
-# Lyra — V3 Android
+# Lyra — V4 Android
 
-Mini asistente Android para citas, recordatorios y agenda por voz, con sincronización opcional con Google Calendar y una interfaz personalizable.
+Lyra es un asistente Android local para citas, recordatorios y agenda por voz, con Google Calendar, perfil personal y una interfaz personalizable.
 
-## V3 incluye
+## V4 incluye
 
 - Crear y editar citas y recordatorios.
 - Avisos locales aunque cierres la app.
-- Asistente por voz en español.
-- Consultas por voz: qué tengo hoy, mañana y cuál es mi próxima cita.
 - Google Calendar mediante el proveedor de calendario de Android.
-- Selección del calendario Google que se usará.
-- Los eventos creados por Lyra se vinculan con su evento de Google Calendar.
-- Cambios realizados en un evento vinculado desde Google Calendar se reflejan al volver a Lyra.
-- Si un evento vinculado se elimina desde Google Calendar, se elimina también de la agenda local al sincronizar.
-- Al activar la sincronización, los eventos futuros locales que aún no estén vinculados se envían al calendario elegido.
-- Tema Sistema / Claro / Oscuro.
-- Cinco colores principales.
-- Mostrar u ocultar Asistente por voz, Acciones rápidas y Agenda.
-- Reordenar esas secciones desde Configuración.
-- Interfaz rediseñada con tarjeta de voz, chips de estado y tarjetas de agenda modernas.
+- Tema Sistema / Claro / Oscuro, cinco colores y secciones reordenables.
+- Perfil local: nombre, nombre preferido, horario habitual, aviso predeterminado, respuestas de voz y contexto libre.
+- Conversación por voz de varios pasos.
+- Lyra pregunta los datos que faltan en vez de inventar fecha/hora.
+- Confirmación por voz: guardar, editar o cancelar.
+- Limpieza de títulos dictados: “Quisiera agendar una cita para con el nombre de Yorsh” se convierte en “Cita con Yorsh”.
+- Notificaciones simplificadas sin fecha/hora duplicada.
+- Consultas por voz: hoy, mañana y próxima cita.
+- Interpretación básica del perfil para expresiones como “después del trabajo”.
+- Opción de solicitar el rol de asistente del sistema en Android 10+.
 
-## Privacidad y arquitectura
+## Activación al decir “Lyra”
 
-No usa servidor propio ni guarda contraseñas de Google. La integración usa `CalendarContract`, es decir, el calendario que ya está sincronizado en Android. La app pide permisos de lectura y escritura de calendario solo cuando el usuario decide conectarlo.
+V4 incluye un modo **experimental** de palabra de activación:
+
+- Android 12 o superior.
+- Solo se habilita si el dispositivo ofrece `SpeechRecognizer` en el dispositivo.
+- El usuario debe activarlo manualmente desde Configuración.
+- Android muestra una notificación persistente mientras el micrófono está en uso.
+- Al detectar “Lyra”, el servicio responde “Te escucho” y entra en conversación por voz.
+- No se inicia automáticamente después de reiniciar el teléfono.
+
+Este modo usa las APIs nativas disponibles sin claves externas. Android documenta que `SpeechRecognizer` no está pensado para reconocimiento continuo, por lo que puede gastar más batería y no debe considerarse todavía un motor de hotword de producción. Para una versión comercial conviene sustituirlo por un motor de wake word dedicado o una integración más profunda con el asistente del sistema.
+
+## Privacidad
+
+- El perfil se guarda en `SharedPreferences` local del teléfono.
+- Las citas se guardan en SQLite local.
+- Lyra no incluye servidor propio.
+- No guarda contraseñas de Google.
+- Google Calendar se integra mediante `CalendarContract` con las cuentas ya configuradas en Android.
+- El modo “Di Lyra” exige reconocimiento local para evitar usar un reconocedor remoto como escucha permanente.
 
 ## Tecnología
 
@@ -32,20 +48,18 @@ No usa servidor propio ni guarda contraseñas de Google. La integración usa `Ca
 - Android Gradle Plugin 9.3.0.
 - Gradle 9.5.0.
 - SQLite local.
-- Sin librerías externas de la app.
+- Sin librerías externas en la app.
 
 ## Generar APK sin Android Studio
 
-El proyecto incluye `.github/workflows/build-apk.yml`. Al subir estos archivos al repositorio, GitHub Actions ejecuta `Build APK` y publica el artefacto `Lyra-APK`.
+El repositorio incluye `.github/workflows/build-apk.yml`. Al subir los archivos a GitHub, el workflow **Build APK** compila automáticamente y publica el artefacto:
 
-El APK de prueba queda como `app-debug.apk` dentro del ZIP del artefacto.
+`Lyra-V4-APK`
 
-## Actualizar un repositorio existente
+Dentro del ZIP del artefacto está `app-debug.apk`.
 
-Sube el contenido de esta carpeta sobre el repositorio de Lyra y confirma el commit. GitHub reemplazará los archivos con el mismo nombre y agregará los nuevos, entre ellos `CalendarBridge.java`, `AppPrefs.java` y `SettingsActivity.java`.
+## Actualizar tu repositorio existente
 
-Después abre **Actions → Build APK** y espera el resultado.
+Descomprime el ZIP de Lyra V4 y sube **todo el contenido de `lyra_android`** encima de tu repositorio actual. Confirma el commit y abre **Actions → Build APK**.
 
-## Nota
-
-La sincronización V3 está enfocada en eventos que Lyra crea o vincula. No importa automáticamente todos los eventos históricos de Google Calendar a la base local.
+No crees un repositorio nuevo: se conserva el mismo `applicationId` (`com.joseph.miasistente`) para que el APK pueda actualizar la instalación anterior mientras mantenga la misma firma debug de GitHub Actions.

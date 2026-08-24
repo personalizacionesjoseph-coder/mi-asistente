@@ -15,4 +15,7 @@ public class VoiceCommand {
     public long eventTime = 0;
     public String issue = "";
     public boolean timeWasAmbiguous = false;
+    public boolean missingTitle = false;
+    public boolean missingDate = false;
+    public boolean missingTime = false;
 }

@@ -74,6 +74,8 @@ public final class VoiceCommandParser {
 
         out.action = VoiceCommand.Action.CREATE;
         out.kind = looksLikeAppointment(text) ? "Cita" : "Recordatorio";
+        out.title = cleanupTitle(original, out.kind);
+        out.missingTitle = out.title.isEmpty() || out.title.equalsIgnoreCase(out.kind);
 
         Calendar now = Calendar.getInstance();
         now.setTimeInMillis(nowMillis);
@@ -83,33 +85,25 @@ public final class VoiceCommandParser {
 
         boolean dateFound = applyDate(text, target, now);
         TimeResult time = parseTime(text);
-        if (!time.found) {
-            out.issue = "Entendí la tarea, pero me falta la hora.";
-            out.title = cleanupTitle(original, out.kind);
-            return out;
-        }
-
-        int hour = time.hour;
-        int minute = time.minute;
+        out.missingDate = !dateFound;
+        out.missingTime = !time.found;
         out.timeWasAmbiguous = time.ambiguous;
-        target.set(Calendar.HOUR_OF_DAY, hour);
-        target.set(Calendar.MINUTE, minute);
 
-        if (!dateFound) {
-            if (target.getTimeInMillis() <= nowMillis) target.add(Calendar.DAY_OF_YEAR, 1);
-        } else if (isWeekdayMention(text) && sameCalendarDay(target, now) && target.getTimeInMillis() <= nowMillis) {
+        if (out.missingDate || out.missingTime) return out;
+
+        target.set(Calendar.HOUR_OF_DAY, time.hour);
+        target.set(Calendar.MINUTE, time.minute);
+
+        if (isWeekdayMention(text) && sameCalendarDay(target, now) && target.getTimeInMillis() <= nowMillis) {
             target.add(Calendar.DAY_OF_YEAR, 7);
         }
 
         if (target.getTimeInMillis() <= nowMillis) {
             out.issue = "La fecha y hora que entendí ya pasaron.";
-            out.title = cleanupTitle(original, out.kind);
             return out;
         }
 
         out.eventTime = target.getTimeInMillis();
-        out.title = cleanupTitle(original, out.kind);
-        if (out.title.isEmpty()) out.title = out.kind;
         return out;
     }
 
@@ -135,7 +129,7 @@ public final class VoiceCommandParser {
                 target.set(Calendar.YEAR, year);
                 target.set(Calendar.MONTH, month);
                 target.set(Calendar.DAY_OF_MONTH, day);
-                if (numeric.group(3) == null && target.before(now)) target.add(Calendar.YEAR, 1);
+                if (numeric.group(3) == null && isBeforeToday(target, now)) target.add(Calendar.YEAR, 1);
                 return true;
             }
         }
@@ -149,7 +143,7 @@ public final class VoiceCommandParser {
                 target.set(Calendar.YEAR, year);
                 target.set(Calendar.MONTH, month);
                 target.set(Calendar.DAY_OF_MONTH, day);
-                if (monthDate.group(3) == null && target.before(now)) target.add(Calendar.YEAR, 1);
+                if (monthDate.group(3) == null && isBeforeToday(target, now)) target.add(Calendar.YEAR, 1);
                 return true;
             }
         }
@@ -209,8 +203,6 @@ public final class VoiceCommandParser {
             if ("manana".equals(daypart) && hour == 12) hour = 0;
         } else {
             if (hour > 23) return new TimeResult(false, 0, 0, false);
-            // Para frases como "a las 3", una interpretación práctica es 15:00.
-            // La pantalla de confirmación siempre muestra la hora antes de guardar.
             if (ambiguous && hour >= 1 && hour <= 7) hour += 12;
         }
         return new TimeResult(true, hour, minute, ambiguous);
@@ -220,33 +212,79 @@ public final class VoiceCommandParser {
         return containsAny(text, "cita", "reunion", "reunirme", "agenda", "agendame", "consulta", "entrevista");
     }
 
-    private static String cleanupTitle(String original, String kind) {
-        String s = original.trim();
-        s = s.replaceFirst("(?iu)^\\s*(recu[eé]rdame|recordarme|ponme\\s+un\\s+recordatorio|pon\\s+un\\s+recordatorio|crea\\s+un\\s+recordatorio|crear\\s+un\\s+recordatorio|ag[eé]ndame|agenda|programa)\\s*", "");
-        s = s.replaceFirst("(?iu)^\\s*(una?\\s+)?(cita|recordatorio)\\s*", "");
+    static String cleanupTitle(String original, String kind) {
+        String s = original == null ? "" : original.trim();
+        if (s.isEmpty()) return "";
 
-        // Fechas explícitas.
+        s = s.replaceFirst("(?iu)^\\s*(oye\\s+lyra[,.:]?\\s*|lyra[,.:]?\\s*)", "");
+        s = s.replaceFirst("(?iu)^\\s*(por\\s+favor\\s+)?(quisiera|quiero|necesito|podr[ií]as?|puedes)\\s+", "");
+        s = s.replaceFirst("(?iu)^\\s*(que\\s+)?", "");
+        s = s.replaceFirst("(?iu)^\\s*(recu[eé]rdame|recordarme|ponme\\s+un\\s+recordatorio|pon\\s+un\\s+recordatorio|crea(?:r)?\\s+un\\s+recordatorio|ag[eé]ndame|agendar|agenda|programa(?:r)?|crea(?:r)?)\\s*", "");
+
+        if ("Cita".equals(kind)) {
+            s = s.replaceFirst("(?iu)^\\s*(una?\\s+)?cita\\s*", "");
+            s = s.replaceFirst("(?iu)^\\s*una\\s+(reuni[oó]n|consulta|entrevista)\\s+", "$1 ");
+            s = s.replaceFirst("(?iu)^\\s*para\\s+con\\s+el\\s+nombre\\s+de\\s+", "con ");
+            s = s.replaceFirst("(?iu)^\\s*con\\s+el\\s+nombre\\s+de\\s+", "con ");
+            s = s.replaceFirst("(?iu)^\\s*para\\s+con\\s+", "con ");
+        } else {
+            s = s.replaceFirst("(?iu)^\\s*(un\\s+)?recordatorio\\s*", "");
+        }
+
+        s = removeDatesAndTimes(s);
+        s = s.replaceAll("(?iu)\\b(pasado\\s+mañana|pasado\\s+manana|hoy|mañana|manana|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\\b", " ");
+        s = s.replaceAll("\\s+", " ").trim();
+        s = s.replaceFirst("(?iu)^(el|la|para|de)\\s+", "").trim();
+        s = s.replaceAll("(?iu)\\s+(el|a|para)$", "").trim();
+
+        if (s.isEmpty()) return "";
+
+        if ("Cita".equals(kind)) {
+            String lower = s.toLowerCase(Locale.ROOT);
+            if (lower.startsWith("con ")) {
+                s = "Cita con " + titleCasePerson(s.substring(4));
+            } else if (lower.startsWith("reuni")) {
+                s = capitalizeFirst(s);
+            } else {
+                s = "Cita: " + capitalizeFirst(s);
+            }
+        } else {
+            s = capitalizeFirst(s);
+        }
+        return s;
+    }
+
+    private static String removeDatesAndTimes(String s) {
         s = s.replaceAll("(?iu)\\b(?:el\\s+)?\\d{1,2}\\s+de\\s+(enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|setiembre|octubre|noviembre|diciembre)(?:\\s+de\\s+\\d{4})?\\b", " ");
         s = s.replaceAll("\\b\\d{1,2}[/-]\\d{1,2}(?:[/-]\\d{2,4})?\\b", " ");
-
-        // Primero elimina horas con "de la mañana/tarde/noche" para no confundir "mañana" con el día siguiente.
         s = s.replaceAll("(?iu)\\b(?:a\\s+las?|para\\s+las?|a\\s+la|para\\s+la)\\s+(?:\\d{1,2}(?::\\d{2})?|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?:\\s+y\\s+(?:media|cuarto))?\\s+de\\s+la\\s+(?:mañana|manana|tarde|noche)\\b", " ");
         s = s.replaceAll("(?iu)\\b(?:a\\s+las?|para\\s+las?|a\\s+la|para\\s+la)\\s+(?:\\d{1,2}(?::\\d{2})?|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez|once|doce)(?:\\s+y\\s+(?:media|cuarto))?\\s*(?:a\\.?\\s*m\\.?|p\\.?\\s*m\\.?|am|pm)?\\b", " ");
         s = s.replaceAll("(?iu)\\b\\d{1,2}:\\d{2}\\s*(?:am|pm)?\\b", " ");
         s = s.replaceAll("(?iu)\\b\\d{1,2}\\s*(?:am|pm)\\b", " ");
-
-        // Días relativos y días de semana.
-        s = s.replaceAll("(?iu)\\b(pasado\\s+mañana|pasado\\s+manana|hoy|mañana|manana|lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bado|domingo)\\b", " ");
-
-        s = s.replaceAll("\\s+", " ").trim();
-        s = s.replaceFirst("(?iu)^(el|la|para)\\s+", "").trim();
-        s = s.replaceAll("(?iu)\\s+(el|a|para)$", "").trim();
-
-        if ("Cita".equals(kind) && s.toLowerCase(Locale.ROOT).startsWith("con ")) {
-            s = "Cita " + s;
-        }
-        if (!s.isEmpty()) s = Character.toUpperCase(s.charAt(0)) + s.substring(1);
         return s;
+    }
+
+    private static String titleCasePerson(String value) {
+        String[] parts = value.trim().split("\\s+");
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < parts.length; i++) {
+            String p = parts[i];
+            String lower = p.toLowerCase(Locale.ROOT);
+            boolean connector = i > 0 && (lower.equals("de") || lower.equals("del") || lower.equals("la") || lower.equals("las") || lower.equals("los") || lower.equals("y"));
+            if (out.length() > 0) out.append(' ');
+            out.append(connector ? lower : capitalizeFirst(p));
+        }
+        return out.toString();
+    }
+
+    private static String capitalizeFirst(String value) {
+        String s = value == null ? "" : value.trim();
+        if (s.isEmpty()) return "";
+        return Character.toUpperCase(s.charAt(0)) + s.substring(1);
+    }
+
+    public static String normalizeForIntent(String input) {
+        return normalize(input == null ? "" : input);
     }
 
     private static String normalize(String input) {
@@ -272,6 +310,14 @@ public final class VoiceCommandParser {
 
     private static boolean sameCalendarDay(Calendar a, Calendar b) {
         return a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR);
+    }
+
+    private static boolean isBeforeToday(Calendar a, Calendar b) {
+        Calendar aa = (Calendar) a.clone();
+        Calendar bb = (Calendar) b.clone();
+        aa.set(Calendar.HOUR_OF_DAY, 0); aa.set(Calendar.MINUTE, 0); aa.set(Calendar.SECOND, 0); aa.set(Calendar.MILLISECOND, 0);
+        bb.set(Calendar.HOUR_OF_DAY, 0); bb.set(Calendar.MINUTE, 0); bb.set(Calendar.SECOND, 0); bb.set(Calendar.MILLISECOND, 0);
+        return aa.before(bb);
     }
 
     private static boolean validDate(int day, int month, int year) {

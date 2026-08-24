@@ -1,0 +1,42 @@
+LYRA V0.4.0 — CAMBIOS PRINCIPALES
+
+1. Conversación por voz de varios pasos
+- Lyra ya no inventa fecha u hora cuando faltan.
+- Si dices: “Quiero una cita con Yorsh”, pregunta primero el día y luego la hora.
+- La confirmación puede hacerse por voz: guardar, editar o cancelar.
+- El título se limpia antes de guardarse. Ej.: “Quisiera agendar una cita para con el nombre de yorsh” -> “Cita con Yorsh”.
+
+2. Notificaciones corregidas
+- Ya no repiten la fecha y hora dos veces.
+- El título de la notificación es el nombre limpio del evento.
+- La fecha/hora se muestra una sola vez de forma compacta: “Hoy · 4:45 p. m.”.
+
+3. Perfil local
+- Nombre y cómo quieres que Lyra te llame.
+- Horario habitual de trabajo.
+- Aviso predeterminado.
+- Respuestas habladas activadas/desactivadas.
+- Campo local “Lo que Lyra debe saber de mí”.
+- Opción para borrar el perfil sin borrar la agenda.
+- El nombre del perfil se usa en el saludo.
+- El horario permite entender expresiones básicas como “después del trabajo”.
+
+4. Activación por “Lyra” — experimental
+- Se puede activar desde Configuración > Voz y activación.
+- Requiere Android 12+ y reconocimiento de voz en el dispositivo.
+- Usa un servicio de micrófono visible con notificación persistente.
+- Al detectar “Lyra”, responde “Te escucho” y permite crear/consultar por voz.
+- No se inicia solo al reiniciar el teléfono.
+- Puede consumir más batería. SpeechRecognizer no está diseñado por Android como motor de hotword permanente; esta función es un prototipo práctico, no un reemplazo de un DSP de hotword dedicado.
+
+5. Asistente del sistema
+- Lyra puede solicitar el rol de asistente en Android 10+ cuando el dispositivo lo permita.
+- Esto permite abrirla mediante el gesto/botón de asistente compatible del teléfono.
+
+6. Google Calendar
+- Se conserva la sincronización existente.
+- Los eventos creados por voz usan también el aviso predeterminado del perfil.
+
+Versión: 0.4.0
+versionCode: 5
+Artefacto de GitHub Actions: Lyra-V4-APK

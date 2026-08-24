@@ -90,10 +90,78 @@ public final class AppPrefs {
         prefs(context).edit().putBoolean("calendar_sync", enabled).apply();
     }
 
+    public static String profileName(Context context) {
+        return prefs(context).getString("profile_name", "").trim();
+    }
+
+    public static String preferredName(Context context) {
+        String preferred = prefs(context).getString("preferred_name", "").trim();
+        return preferred.isEmpty() ? profileName(context) : preferred;
+    }
+
+    public static String profileContext(Context context) {
+        return prefs(context).getString("profile_context", "").trim();
+    }
+
+    public static String workStart(Context context) {
+        return prefs(context).getString("work_start", "08:00");
+    }
+
+    public static String workEnd(Context context) {
+        return prefs(context).getString("work_end", "18:00");
+    }
+
+    public static int defaultReminderMinutes(Context context) {
+        return prefs(context).getInt("default_reminder_minutes", 30);
+    }
+
+    public static boolean voiceRepliesEnabled(Context context) {
+        return prefs(context).getBoolean("voice_replies", true);
+    }
+
+    public static void saveProfile(Context context, String name, String preferredName, String workStart,
+                                   String workEnd, int defaultReminderMinutes, boolean voiceReplies,
+                                   String profileContext) {
+        prefs(context).edit()
+                .putString("profile_name", safe(name))
+                .putString("preferred_name", safe(preferredName))
+                .putString("work_start", safe(workStart))
+                .putString("work_end", safe(workEnd))
+                .putInt("default_reminder_minutes", defaultReminderMinutes)
+                .putBoolean("voice_replies", voiceReplies)
+                .putString("profile_context", safe(profileContext))
+                .apply();
+    }
+
+    public static void clearProfile(Context context) {
+        prefs(context).edit()
+                .remove("profile_name")
+                .remove("preferred_name")
+                .remove("work_start")
+                .remove("work_end")
+                .remove("default_reminder_minutes")
+                .remove("voice_replies")
+                .remove("profile_context")
+                .apply();
+    }
+
+    public static boolean wakeWordEnabled(Context context) {
+        return prefs(context).getBoolean("wake_word_enabled", false);
+    }
+
+    public static void setWakeWordEnabled(Context context, boolean enabled) {
+        prefs(context).edit().putBoolean("wake_word_enabled", enabled).apply();
+    }
+
     public static String appearanceSignature(Context context) {
         return themeMode(context) + "|" + accent(context) + "|" + homeOrder(context) + "|"
                 + isSectionVisible(context, SECTION_VOICE) + "|"
                 + isSectionVisible(context, SECTION_QUICK) + "|"
-                + isSectionVisible(context, SECTION_AGENDA);
+                + isSectionVisible(context, SECTION_AGENDA) + "|"
+                + preferredName(context) + "|" + wakeWordEnabled(context);
+    }
+
+    private static String safe(String value) {
+        return value == null ? "" : value.trim();
     }
 }

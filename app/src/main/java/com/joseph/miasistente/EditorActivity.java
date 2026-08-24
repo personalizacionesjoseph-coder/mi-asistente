@@ -55,6 +55,7 @@ public class EditorActivity extends Activity {
         if (item == null) item = new ReminderItem();
 
         if (item.id == 0) {
+            item.remindMinutes = AppPrefs.defaultReminderMinutes(this);
             String prefillKind = getIntent().getStringExtra("prefill_kind");
             String prefillTitle = getIntent().getStringExtra("prefill_title");
             long prefillTime = getIntent().getLongExtra("prefill_time", 0);
