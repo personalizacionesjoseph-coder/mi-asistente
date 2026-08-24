@@ -22,7 +22,7 @@ VALIDACIONES REALIZADAS
 - Revisión de sintaxis Java completa con javac sin Android SDK: no aparecieron errores de estructura Java (los errores restantes son únicamente imports/símbolos Android ausentes en este entorno).
 
 LIMITACIÓN DE VERIFICACIÓN
-Este entorno no contiene el Android SDK, por lo que no se pudo ejecutar aquí el build Android real ni instalar la APK en un dispositivo. El repositorio incluye GitHub Actions para realizar esa compilación con Android SDK 36. El resultado esperado del workflow es el artefacto “Lyra-V5-APK”.
+Este entorno no contiene el Android SDK, por lo que no se pudo ejecutar aquí el build Android real ni instalar la APK en un dispositivo. El repositorio incluye GitHub Actions para realizar esa compilación con Android SDK 36. El resultado esperado del workflow es el artefacto “Lyra-V5.1-APK”.
 
 WAKE WORD
 La activación “Lyra/Lira” fue reforzada con resultados parciales, alternativas, fallback al reconocedor del sistema, recuperación de errores y coordinación con el micrófono manual. Sigue basada en SpeechRecognizer de Android, por lo que la escucha permanente debe considerarse experimental hasta sustituirla por un motor dedicado de wake word en una versión comercial.

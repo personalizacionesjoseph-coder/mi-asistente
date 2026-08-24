@@ -492,7 +492,7 @@ public class WakeWordService extends Service {
             } else if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT || error == SpeechRecognizer.ERROR_NO_MATCH) {
                 repeatCurrentPrompt();
             } else if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
-                mainHandler.postDelayed(this::startRecognitionForCurrentMode, 900);
+                mainHandler.postDelayed(WakeWordService.this::startRecognitionForCurrentMode, 900);
             } else {
                 speakThenWake("Tuve un problema con el reconocimiento de voz. Inténtalo de nuevo.");
             }
@@ -512,7 +512,7 @@ public class WakeWordService extends Service {
                 else scheduleWakeListening(220);
             } else {
                 if (System.currentTimeMillis() < ignoreWakeEchoUntil && anyResultContainsWakeWord(matches)) {
-                    mainHandler.postDelayed(this::startRecognitionForCurrentMode, 250);
+                    mainHandler.postDelayed(WakeWordService.this::startRecognitionForCurrentMode, 250);
                     return;
                 }
                 handleCommandText(first);

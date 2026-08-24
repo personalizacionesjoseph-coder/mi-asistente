@@ -1,0 +1,14 @@
+LYRA V5.1 · CORRECCIÓN DE COMPILACIÓN
+Versión 0.5.1
+
+CORRECCIÓN
+- Corregidas dos referencias de método dentro de WakeWordService.Listener.
+- En las rutas de recuperación del reconocimiento, `this::startRecognitionForCurrentMode` apuntaba por error a la clase interna Listener.
+- Ahora se usa explícitamente `WakeWordService.this::startRecognitionForCurrentMode`, que referencia el método real del servicio.
+
+ERROR DE GITHUB ACTIONS CORREGIDO
+- WakeWordService.java:495 invalid method reference
+- WakeWordService.java:515 invalid method reference
+
+RESULTADO ESPERADO
+- El workflow Build APK publica el artefacto `Lyra-V5.1-APK`.

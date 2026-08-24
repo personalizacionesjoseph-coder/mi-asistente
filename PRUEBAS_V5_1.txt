@@ -1,0 +1,25 @@
+LYRA V5.1 · VERIFICACIONES DE CORRECCIÓN
+Fecha: 24 ago 2026
+
+ERROR REAL REPORTADO POR GITHUB ACTIONS
+- WakeWordService.java:495: invalid method reference.
+- WakeWordService.java:515: invalid method reference.
+- Causa: dentro de la clase interna WakeWordService.Listener, `this` se refería a Listener y no a WakeWordService.
+
+CORRECCIÓN APLICADA
+- Línea de recuperación ERROR_RECOGNIZER_BUSY: `WakeWordService.this::startRecognitionForCurrentMode`.
+- Línea de recuperación tras eco del wake word: `WakeWordService.this::startRecognitionForCurrentMode`.
+- No quedan referencias no cualificadas a ese método dentro de Listener.
+
+VALIDACIONES LOCALES
+- 16 XML analizados: 0 errores de sintaxis.
+- Componentes del AndroidManifest: 0 clases faltantes.
+- 11 referencias R.drawable verificadas: 0 recursos faltantes.
+- Balance estructural de llaves Java: 0 errores.
+- Búsqueda global del ejemplo no deseado “Carlos”: 0 coincidencias.
+- versionCode: 9.
+- versionName: 0.5.1.
+- Artefacto configurado: Lyra-V5.1-APK.
+
+LIMITACIÓN
+- El build Android real debe volver a ejecutarse en GitHub Actions, que sí dispone del Android SDK. El error anterior llegó hasta compileDebugJavaWithJavac y reportó únicamente estas dos referencias inválidas; V5.1 corrige exactamente ambas.

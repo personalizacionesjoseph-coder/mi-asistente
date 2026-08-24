@@ -1,4 +1,4 @@
-# Lyra V5 — Asistente personal Android
+# Lyra V5.1 — Asistente personal Android
 
 Lyra es una mini app Android nativa y local orientada a organización personal por voz.
 
@@ -32,7 +32,7 @@ El perfil, memoria, tareas, notas y agenda local se guardan en el teléfono. Lyr
 
 ## Compilar sin Android Studio
 
-El repositorio incluye `.github/workflows/build-apk.yml`. Al subir esta versión a GitHub, el workflow `Build APK` crea un APK de depuración y publica el artefacto `Lyra-V5-APK`.
+El repositorio incluye `.github/workflows/build-apk.yml`. Al subir esta versión a GitHub, el workflow `Build APK` crea un APK de depuración y publica el artefacto `Lyra-V5.1-APK`.
 
 ## Tecnología
 
