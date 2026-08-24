@@ -1,0 +1,18 @@
+LYRA V4.2 — interfaz, estados e identidad visual
+
+- Nuevo icono oficial de Lyra con identidad cósmica y micrófono.
+- Icono Android actualizado en todas las densidades.
+- Recursos de branding incluidos para futuros favicon/PWA.
+- Corregido contraste de las pestañas Hoy/Próximos en modo oscuro.
+- Tarjeta de voz más compacta y con jerarquía visual más limpia.
+- Estados de voz reales: activa, pendiente, escuchando y procesando.
+- Los errores de reconocimiento ya no quedan pegados permanentemente en Inicio.
+- Cabecera simplificada; Calendar se muestra como estado y abre Configuración al tocarlo.
+- Botones de Nueva cita y Recordatorio usan iconos vectoriales consistentes, sin emojis.
+- Estado vacío de Agenda rediseñado con acción directa.
+- Botón de Configuración ahora usa un icono vectorial.
+- Se conserva la mejora V4.1 para reconocer tanto “Lyra” como “Lira” y revisar alternativas/parciales.
+- Notificación del servicio de voz simplificada: “Lyra activa · Di Lyra para comenzar”.
+
+Versión: 0.4.2 (versionCode 7)
+Artefacto GitHub Actions: Lyra-V4.2-APK

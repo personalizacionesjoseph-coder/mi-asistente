@@ -54,7 +54,7 @@ Este modo usa las APIs nativas disponibles sin claves externas. Android document
 
 El repositorio incluye `.github/workflows/build-apk.yml`. Al subir los archivos a GitHub, el workflow **Build APK** compila automáticamente y publica el artefacto:
 
-`Lyra-V4-APK`
+`Lyra-V4.1-APK`
 
 Dentro del ZIP del artefacto está `app-debug.apk`.
 
@@ -63,3 +63,11 @@ Dentro del ZIP del artefacto está `app-debug.apk`.
 Descomprime el ZIP de Lyra V4 y sube **todo el contenido de `lyra_android`** encima de tu repositorio actual. Confirma el commit y abre **Actions → Build APK**.
 
 No crees un repositorio nuevo: se conserva el mismo `applicationId` (`com.joseph.miasistente`) para que el APK pueda actualizar la instalación anterior mientras mantenga la misma firma debug de GitHub Actions.
+
+
+## Corrección V4.1 — activación por nombre
+
+- La activación acepta tanto `Lyra` como la transcripción fonética española `lira`.
+- Se revisan todas las alternativas devueltas por el reconocedor, no solo la primera.
+- El reconocimiento usa el español configurado en el teléfono cuando está disponible.
+- Versión 0.4.1 (versionCode 6).

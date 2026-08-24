@@ -1,0 +1,19 @@
+LYRA V4.1 — CORRECCIÓN DE ACTIVACIÓN POR VOZ
+
+Problema corregido:
+El micrófono podía aparecer activo pero Lyra no reaccionaba al decir su nombre.
+
+Causa principal encontrada:
+1. El código esperaba literalmente la palabra "lyra".
+2. En reconocimiento de voz en español, "Lyra" suele transcribirse como "lira".
+3. Solo se inspeccionaba la primera hipótesis del reconocedor.
+
+Cambios:
+- Se aceptan Lyra y lira como palabra de activación.
+- Se inspeccionan todas las hipótesis de reconocimiento, incluidas parciales.
+- Se usa el locale español del teléfono cuando existe.
+- Se mantiene el reinicio de escucha tras timeout/no-match.
+
+Versión: 0.4.1
+versionCode: 6
+Artefacto GitHub Actions: Lyra-V4.1-APK

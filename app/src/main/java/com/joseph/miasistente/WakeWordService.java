@@ -113,8 +113,8 @@ public class WakeWordService extends Service {
 
         Notification notification = new Notification.Builder(this, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_mic)
-                .setContentTitle("Lyra está escuchando")
-                .setContentText("Di “Lyra” para activar el asistente · modo experimental")
+                .setContentTitle("Lyra activa")
+                .setContentText("Di “Lyra” para comenzar")
                 .setContentIntent(openPending)
                 .addAction(new Notification.Action.Builder(R.drawable.ic_mic, "Detener", stopPending).build())
                 .setOngoing(true)
@@ -133,7 +133,7 @@ public class WakeWordService extends Service {
         if (manager == null) return;
         NotificationChannel channel = new NotificationChannel(
                 CHANNEL_ID, "Activación por voz de Lyra", NotificationManager.IMPORTANCE_LOW);
-        channel.setDescription("Mantiene activo el modo experimental para detectar la palabra Lyra.");
+        channel.setDescription("Mantiene activa la detección por voz de Lyra.");
         channel.setSound(null, null);
         manager.createNotificationChannel(channel);
     }
@@ -210,7 +210,7 @@ public class WakeWordService extends Service {
 
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-ES");
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage());
         intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3);
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
         intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
@@ -231,7 +231,29 @@ public class WakeWordService extends Service {
 
     private boolean containsWakeWord(String text) {
         String n = VoiceCommandParser.normalizeForIntent(text);
-        return n.matches(".*\\blyra\\b.*");
+        if (n.isEmpty()) return false;
+
+        // Los reconocedores en español suelen transcribir el nombre "Lyra" como
+        // "lira". Aceptamos ambas formas, pero exigimos una palabra completa
+        // para reducir activaciones accidentales.
+        return n.matches(".*\\b(lyra|lira)\\b.*");
+    }
+
+    private boolean anyResultContainsWakeWord(ArrayList<String> matches) {
+        if (matches == null) return false;
+        for (String match : matches) {
+            if (containsWakeWord(match)) return true;
+        }
+        return false;
+    }
+
+    private String recognitionLanguage() {
+        Locale locale = Locale.getDefault();
+        String language = locale.getLanguage();
+        if (language != null && language.equalsIgnoreCase("es")) {
+            return locale.toLanguageTag();
+        }
+        return "es-ES";
     }
 
     private void activateAssistant() {
@@ -427,10 +449,12 @@ public class WakeWordService extends Service {
             }
             String first = matches.get(0);
             if (mode == Mode.WAIT_WAKE) {
-                if (containsWakeWord(first)) activateAssistant();
+                // No depender solo de la primera hipótesis. En algunos teléfonos
+                // "Lyra/Lira" aparece como segunda o tercera alternativa.
+                if (anyResultContainsWakeWord(matches)) activateAssistant();
                 else scheduleWakeListening(300);
             } else {
-                if (System.currentTimeMillis() < ignoreWakeEchoUntil && containsWakeWord(first)) return;
+                if (System.currentTimeMillis() < ignoreWakeEchoUntil && anyResultContainsWakeWord(matches)) return;
                 handleCommandText(first);
             }
         }
@@ -439,7 +463,7 @@ public class WakeWordService extends Service {
         public void onPartialResults(Bundle partialResults) {
             if (mode != Mode.WAIT_WAKE) return;
             ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-            if (matches != null && !matches.isEmpty() && containsWakeWord(matches.get(0))) {
+            if (anyResultContainsWakeWord(matches)) {
                 activateAssistant();
             }
         }

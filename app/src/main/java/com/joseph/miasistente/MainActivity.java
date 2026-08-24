@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -85,6 +86,11 @@ public class MainActivity extends Activity {
         refreshAgenda();
         pullCalendarChanges();
         ensureWakeServiceIfEnabled();
+        mainHandler.postDelayed(() -> {
+            if (voiceStatus != null && pendingVoiceText.isEmpty() && pendingConfirmation == null) {
+                voiceStatus.setText(defaultVoiceHint());
+            }
+        }, 350);
         if (autoStartFromAssist) {
             autoStartFromAssist = false;
             mainHandler.postDelayed(this::startVoiceRecognition, 450);
@@ -164,11 +170,10 @@ public class MainActivity extends Activity {
         copy.addView(date);
         header.addView(copy, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
 
-        Button settings = new Button(this);
-        settings.setText("⚙");
-        settings.setTextSize(21);
-        settings.setTextColor(Ui.TEXT);
-        settings.setPadding(0, 0, 0, 0);
+        ImageButton settings = new ImageButton(this);
+        settings.setImageResource(R.drawable.ic_settings);
+        settings.setColorFilter(Ui.TEXT);
+        settings.setPadding(dp(13), dp(13), dp(13), dp(13));
         settings.setBackground(Ui.roundedStroke(Ui.SURFACE, Ui.BORDER, 1, 18, this));
         settings.setContentDescription("Configuración y apariencia");
         settings.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
@@ -179,15 +184,10 @@ public class MainActivity extends Activity {
         statusRow.setOrientation(LinearLayout.HORIZONTAL);
         statusRow.setPadding(0, dp(16), 0, dp(2));
         statusRow.addView(statusChip("●  " + todayCount() + " hoy", Ui.PRIMARY_SOFT, Ui.PRIMARY));
-        if (AppPrefs.wakeWordEnabled(this)) {
-            TextView wakeChip = statusChip("◉  Di Lyra", Ui.SURFACE, Ui.PRIMARY);
-            LinearLayout.LayoutParams wakeLp = new LinearLayout.LayoutParams(
-                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
-            wakeLp.leftMargin = dp(8);
-            statusRow.addView(wakeChip, wakeLp);
-        }
         if (AppPrefs.calendarSyncEnabled(this) && AppPrefs.calendarId(this) > 0) {
-            TextView calendarChip = statusChip("✓  Google Calendar", Ui.SURFACE, Ui.MUTED);
+            TextView calendarChip = statusChip("✓  Calendar", Ui.SURFACE, Ui.MUTED);
+            calendarChip.setContentDescription("Calendario sincronizado. Toca para configurar.");
+            calendarChip.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.WRAP_CONTENT, dp(34));
             lp.leftMargin = dp(8);
@@ -222,57 +222,57 @@ public class MainActivity extends Activity {
         LinearLayout voiceCard = new LinearLayout(this);
         voiceCard.setOrientation(LinearLayout.VERTICAL);
         voiceCard.setGravity(Gravity.CENTER_HORIZONTAL);
-        voiceCard.setPadding(dp(22), dp(24), dp(22), dp(22));
-        voiceCard.setBackground(Ui.gradient(Ui.PRIMARY, Ui.PRIMARY_DARK, 28, this));
-        voiceCard.setElevation(dp(3));
+        voiceCard.setPadding(dp(20), dp(18), dp(20), dp(18));
+        voiceCard.setBackground(Ui.gradient(Ui.PRIMARY, Ui.PRIMARY_DARK, 26, this));
+        voiceCard.setElevation(dp(2));
         root.addView(voiceCard, sectionParams());
 
         TextView badge = new TextView(this);
-        badge.setText("ASISTENTE POR VOZ");
+        badge.setText("LYRA · ASISTENTE DE VOZ");
         badge.setTextSize(10);
-        badge.setLetterSpacing(0.1f);
+        badge.setLetterSpacing(0.08f);
         badge.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
-        badge.setTextColor(Color.WHITE);
+        badge.setTextColor(Color.argb(235, 255, 255, 255));
         badge.setGravity(Gravity.CENTER);
-        badge.setPadding(dp(12), dp(6), dp(12), dp(6));
-        badge.setBackground(Ui.rounded(Color.argb(42, 255, 255, 255), 14, this));
+        badge.setPadding(dp(12), dp(5), dp(12), dp(5));
+        badge.setBackground(Ui.rounded(Color.argb(35, 255, 255, 255), 13, this));
         voiceCard.addView(badge);
 
         TextView ask = new TextView(this);
-        ask.setText("¿Qué necesitas hoy?");
-        ask.setTextSize(23);
+        ask.setText("¿Qué necesitas?");
+        ask.setTextSize(21);
         ask.setTextColor(Color.WHITE);
         ask.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         ask.setGravity(Gravity.CENTER);
-        ask.setPadding(0, dp(14), 0, dp(5));
+        ask.setPadding(0, dp(12), 0, dp(3));
         voiceCard.addView(ask);
 
         TextView helper = new TextView(this);
         helper.setText(AppPrefs.wakeWordEnabled(this)
-                ? "Di “Lyra” para activarme o toca el micrófono. Si falta un dato, te lo preguntaré."
-                : "Dime una cita o recordatorio. Si falta fecha, hora o nombre, te lo preguntaré.");
+                ? "Di “Lyra” o toca el micrófono"
+                : "Toca el micrófono para hablar");
         helper.setTextSize(13);
         helper.setTextColor(Color.argb(220, 255, 255, 255));
         helper.setGravity(Gravity.CENTER);
-        helper.setPadding(dp(8), 0, dp(8), dp(18));
+        helper.setPadding(dp(6), 0, dp(6), dp(13));
         voiceCard.addView(helper);
 
         micButton = new ImageButton(this);
         micButton.setImageResource(R.drawable.ic_mic);
         micButton.setColorFilter(Ui.PRIMARY);
-        micButton.setBackground(Ui.rounded(Color.WHITE, 39, this));
-        micButton.setPadding(dp(20), dp(20), dp(20), dp(20));
+        micButton.setBackground(Ui.rounded(Color.WHITE, 32, this));
+        micButton.setPadding(dp(16), dp(16), dp(16), dp(16));
         micButton.setContentDescription("Hablar con Lyra");
         micButton.setOnClickListener(v -> startVoiceRecognition());
-        micButton.setElevation(dp(4));
-        voiceCard.addView(micButton, new LinearLayout.LayoutParams(dp(78), dp(78)));
+        micButton.setElevation(dp(3));
+        voiceCard.addView(micButton, new LinearLayout.LayoutParams(dp(64), dp(64)));
 
         voiceStatus = new TextView(this);
-        voiceStatus.setText("Ej.: “Quiero una cita con Yorsh” · Lyra preguntará lo que falte");
+        voiceStatus.setText(defaultVoiceHint());
         voiceStatus.setTextSize(12);
-        voiceStatus.setTextColor(Color.argb(220, 255, 255, 255));
+        voiceStatus.setTextColor(Color.argb(225, 255, 255, 255));
         voiceStatus.setGravity(Gravity.CENTER);
-        voiceStatus.setPadding(dp(4), dp(15), dp(4), 0);
+        voiceStatus.setPadding(dp(4), dp(12), dp(4), 0);
         voiceCard.addView(voiceStatus, matchWrap());
     }
 
@@ -286,14 +286,16 @@ public class MainActivity extends Activity {
         quickRow.setOrientation(LinearLayout.HORIZONTAL);
 
         Button newAppointment = new Button(this);
-        newAppointment.setText("＋  Nueva cita");
+        newAppointment.setText("Nueva cita");
         Ui.styleSecondaryButton(newAppointment);
+        setButtonIcon(newAppointment, R.drawable.ic_add, Ui.TEXT);
         newAppointment.setOnClickListener(v -> quickCreate("Cita"));
         quickRow.addView(newAppointment, new LinearLayout.LayoutParams(0, dp(56), 1f));
 
         Button newReminder = new Button(this);
-        newReminder.setText("⏰  Recordatorio");
+        newReminder.setText("Recordatorio");
         Ui.stylePrimaryButton(newReminder);
+        setButtonIcon(newReminder, R.drawable.ic_reminder, Color.WHITE);
         newReminder.setOnClickListener(v -> quickCreate("Recordatorio"));
         LinearLayout.LayoutParams reminderLp = new LinearLayout.LayoutParams(0, dp(56), 1f);
         reminderLp.leftMargin = dp(10);
@@ -365,7 +367,7 @@ public class MainActivity extends Activity {
         button.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
         button.setTextColor(selected ? Color.WHITE : Ui.MUTED);
         button.setBackground(selected
-                ? Ui.rounded(Ui.TEXT, 14, this)
+                ? Ui.rounded(Ui.PRIMARY, 14, this)
                 : Ui.roundedStroke(Ui.SURFACE, Ui.BORDER, 1, 14, this));
     }
 
@@ -390,16 +392,38 @@ public class MainActivity extends Activity {
 
         agendaContainer.removeAllViews();
         if (items.isEmpty()) {
-            TextView empty = new TextView(this);
-            empty.setText(showToday
-                    ? "Tu día está despejado. Crea algo o pídemelo por voz."
-                    : "Cuando agregues una cita o recordatorio aparecerá aquí.");
-            empty.setTextSize(14);
-            empty.setTextColor(Ui.MUTED);
-            empty.setGravity(Gravity.CENTER);
-            empty.setPadding(dp(24), dp(30), dp(24), dp(30));
-            empty.setBackground(Ui.roundedStroke(Ui.SURFACE, Ui.BORDER, 1, 22, this));
-            agendaContainer.addView(empty, matchWrap());
+            LinearLayout emptyCard = new LinearLayout(this);
+            emptyCard.setOrientation(LinearLayout.VERTICAL);
+            emptyCard.setGravity(Gravity.CENTER);
+            emptyCard.setPadding(dp(22), dp(22), dp(22), dp(20));
+            emptyCard.setBackground(Ui.roundedStroke(Ui.SURFACE, Ui.BORDER, 1, 22, this));
+
+            TextView emptyTitle = new TextView(this);
+            emptyTitle.setText(showToday ? "Nada pendiente hoy" : "Sin eventos próximos");
+            emptyTitle.setTextSize(16);
+            emptyTitle.setTextColor(Ui.TEXT);
+            emptyTitle.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
+            emptyTitle.setGravity(Gravity.CENTER);
+            emptyCard.addView(emptyTitle);
+
+            TextView emptyText = new TextView(this);
+            emptyText.setText(showToday
+                    ? "Tu agenda está libre por ahora."
+                    : "Tus próximas citas y recordatorios aparecerán aquí.");
+            emptyText.setTextSize(13);
+            emptyText.setTextColor(Ui.MUTED);
+            emptyText.setGravity(Gravity.CENTER);
+            emptyText.setPadding(0, dp(4), 0, dp(14));
+            emptyCard.addView(emptyText);
+
+            Button emptyAction = new Button(this);
+            emptyAction.setText(showToday ? "Crear recordatorio" : "Nueva cita");
+            Ui.styleSoftButton(emptyAction);
+            emptyAction.setOnClickListener(v -> quickCreate(showToday ? "Recordatorio" : "Cita"));
+            emptyCard.addView(emptyAction, new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, dp(44)));
+
+            agendaContainer.addView(emptyCard, matchWrap());
             return;
         }
 
@@ -532,7 +556,7 @@ public class MainActivity extends Activity {
 
     private void startVoiceRecognitionInternal(boolean preferOnDevice) {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            showVoiceMessage("Este teléfono no tiene un servicio de reconocimiento de voz disponible.", true);
+            showTemporaryVoiceMessage("Este teléfono no tiene un servicio de reconocimiento de voz disponible.");
             return;
         }
 
@@ -838,6 +862,35 @@ public class MainActivity extends Activity {
         if (resetMic) setListeningUi(false, message);
     }
 
+    private void showTemporaryVoiceMessage(String message) {
+        setListeningUi(false, message);
+        mainHandler.postDelayed(() -> {
+            if (voiceStatus != null && message.contentEquals(voiceStatus.getText())
+                    && pendingVoiceText.isEmpty() && pendingConfirmation == null) {
+                voiceStatus.setText(defaultVoiceHint());
+            }
+        }, 4200);
+    }
+
+    private String defaultVoiceHint() {
+        if (AppPrefs.wakeWordEnabled(this)) {
+            return WakeWordService.isRunning()
+                    ? "Lyra activa · di “Lyra” o toca para hablar"
+                    : "Activación por voz pendiente · toca para hablar";
+        }
+        return "Toca el micrófono para hablar";
+    }
+
+    private void setButtonIcon(Button button, int drawableRes, int tint) {
+        Drawable icon = getDrawable(drawableRes);
+        if (icon == null) return;
+        icon.setTint(tint);
+        int size = dp(20);
+        icon.setBounds(0, 0, size, size);
+        button.setCompoundDrawables(icon, null, null, null);
+        button.setCompoundDrawablePadding(dp(8));
+    }
+
     private void requestNotificationPermissionIfNeeded() {
         if (Build.VERSION.SDK_INT >= 33 &&
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -878,7 +931,7 @@ public class MainActivity extends Activity {
             if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 startVoiceRecognition();
             } else {
-                showVoiceMessage("Sin permiso de micrófono no puedo recibir instrucciones por voz.", true);
+                showTemporaryVoiceMessage("Sin permiso de micrófono no puedo recibir instrucciones por voz.");
             }
         }
     }
@@ -946,7 +999,7 @@ public class MainActivity extends Activity {
             else if (error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) message = "No escuché nada. Toca el micrófono cuando quieras hablar.";
             else if (error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS) message = "Necesito permiso de micrófono para escucharte.";
             else message = "El reconocimiento de voz no respondió. Inténtalo de nuevo.";
-            setListeningUi(false, message);
+            showTemporaryVoiceMessage(message);
         }
 
         @Override
@@ -954,7 +1007,7 @@ public class MainActivity extends Activity {
             ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
             setListeningUi(false, "Listo");
             if (matches == null || matches.isEmpty()) {
-                showVoiceMessage("No pude entenderte. Inténtalo otra vez.", true);
+                showTemporaryVoiceMessage("No pude entenderte. Inténtalo otra vez.");
                 return;
             }
             handleVoiceText(matches.get(0));
