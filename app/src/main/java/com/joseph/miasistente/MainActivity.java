@@ -131,7 +131,7 @@ public class MainActivity extends Activity {
         copy.addView(eyebrow);
 
         TextView title = new TextView(this);
-        title.setText("Mi Asistente");
+        title.setText("Lyra");
         title.setTextSize(30);
         title.setTextColor(Ui.TEXT);
         title.setTypeface(Typeface.DEFAULT, Typeface.BOLD);
@@ -234,7 +234,7 @@ public class MainActivity extends Activity {
         micButton.setColorFilter(Ui.PRIMARY);
         micButton.setBackground(Ui.rounded(Color.WHITE, 39, this));
         micButton.setPadding(dp(20), dp(20), dp(20), dp(20));
-        micButton.setContentDescription("Hablar con Mi Asistente");
+        micButton.setContentDescription("Hablar con Lyra");
         micButton.setOnClickListener(v -> startVoiceRecognition());
         micButton.setElevation(dp(4));
         voiceCard.addView(micButton, new LinearLayout.LayoutParams(dp(78), dp(78)));
@@ -693,7 +693,7 @@ public class MainActivity extends Activity {
                 checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             new AlertDialog.Builder(this)
                     .setTitle("Permitir recordatorios")
-                    .setMessage("Mi Asistente necesita permiso para mostrarte avisos cuando llegue una cita o recordatorio.")
+                    .setMessage("Lyra necesita permiso para mostrarte avisos cuando llegue una cita o recordatorio.")
                     .setNegativeButton("Ahora no", null)
                     .setPositiveButton("Permitir", (d, w) -> requestPermissions(
                             new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS))

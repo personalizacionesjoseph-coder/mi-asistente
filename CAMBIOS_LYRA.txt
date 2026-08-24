@@ -1,0 +1,11 @@
+LYRA — ACTUALIZACIÓN DE MARCA 0.3.1
+
+- Nombre visible de la aplicación cambiado de "Mi Asistente" a "Lyra".
+- Encabezado principal actualizado a Lyra.
+- Accesibilidad del micrófono actualizada a "Hablar con Lyra".
+- Mensajes de permisos y Google Calendar actualizados con la nueva marca.
+- Canal de notificaciones actualizado para mostrar Lyra.
+- Artefacto de GitHub Actions renombrado a "Lyra-APK".
+- Proyecto Gradle renombrado a Lyra.
+- applicationId y paquete Java se mantienen como com.joseph.miasistente para conservar compatibilidad con la app existente.
+- Versión: 0.3.1 (versionCode 4).

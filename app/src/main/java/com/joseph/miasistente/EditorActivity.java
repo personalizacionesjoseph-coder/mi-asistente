@@ -317,7 +317,7 @@ public class EditorActivity extends Activity {
         boolean syncRequested = AppPrefs.calendarSyncEnabled(this) && AppPrefs.calendarId(this) > 0;
         boolean calendarSaved = syncRequested && CalendarBridge.saveToSelectedCalendar(this, db, item);
         if (syncRequested && !calendarSaved) {
-            Toast.makeText(this, "Guardado en Mi Asistente, pero Google Calendar no respondió.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Guardado en Lyra, pero Google Calendar no respondió.", Toast.LENGTH_LONG).show();
         } else {
             Toast.makeText(this, calendarSaved ? "Guardado y sincronizado" : "Guardado", Toast.LENGTH_SHORT).show();
         }

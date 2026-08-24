@@ -26,7 +26,7 @@ public final class NotificationHelper {
                 "Citas y recordatorios",
                 NotificationManager.IMPORTANCE_HIGH
         );
-        channel.setDescription("Avisos de Mi Asistente");
+        channel.setDescription("Avisos de Lyra");
         channel.enableVibration(true);
         manager.createNotificationChannel(channel);
     }

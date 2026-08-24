@@ -1,4 +1,4 @@
-# Mi Asistente — V3 Android
+# Lyra — V3 Android
 
 Mini asistente Android para citas, recordatorios y agenda por voz, con sincronización opcional con Google Calendar y una interfaz personalizable.
 
@@ -10,8 +10,8 @@ Mini asistente Android para citas, recordatorios y agenda por voz, con sincroniz
 - Consultas por voz: qué tengo hoy, mañana y cuál es mi próxima cita.
 - Google Calendar mediante el proveedor de calendario de Android.
 - Selección del calendario Google que se usará.
-- Los eventos creados por Mi Asistente se vinculan con su evento de Google Calendar.
-- Cambios realizados en un evento vinculado desde Google Calendar se reflejan al volver a Mi Asistente.
+- Los eventos creados por Lyra se vinculan con su evento de Google Calendar.
+- Cambios realizados en un evento vinculado desde Google Calendar se reflejan al volver a Lyra.
 - Si un evento vinculado se elimina desde Google Calendar, se elimina también de la agenda local al sincronizar.
 - Al activar la sincronización, los eventos futuros locales que aún no estén vinculados se envían al calendario elegido.
 - Tema Sistema / Claro / Oscuro.
@@ -36,16 +36,16 @@ No usa servidor propio ni guarda contraseñas de Google. La integración usa `Ca
 
 ## Generar APK sin Android Studio
 
-El proyecto incluye `.github/workflows/build-apk.yml`. Al subir estos archivos al repositorio, GitHub Actions ejecuta `Build APK` y publica el artefacto `MiAsistente-APK`.
+El proyecto incluye `.github/workflows/build-apk.yml`. Al subir estos archivos al repositorio, GitHub Actions ejecuta `Build APK` y publica el artefacto `Lyra-APK`.
 
 El APK de prueba queda como `app-debug.apk` dentro del ZIP del artefacto.
 
 ## Actualizar un repositorio existente
 
-Sube el contenido de esta carpeta sobre el repositorio de Mi Asistente y confirma el commit. GitHub reemplazará los archivos con el mismo nombre y agregará los nuevos, entre ellos `CalendarBridge.java`, `AppPrefs.java` y `SettingsActivity.java`.
+Sube el contenido de esta carpeta sobre el repositorio de Lyra y confirma el commit. GitHub reemplazará los archivos con el mismo nombre y agregará los nuevos, entre ellos `CalendarBridge.java`, `AppPrefs.java` y `SettingsActivity.java`.
 
 Después abre **Actions → Build APK** y espera el resultado.
 
 ## Nota
 
-La sincronización V3 está enfocada en eventos que Mi Asistente crea o vincula. No importa automáticamente todos los eventos históricos de Google Calendar a la base local.
+La sincronización V3 está enfocada en eventos que Lyra crea o vincula. No importa automáticamente todos los eventos históricos de Google Calendar a la base local.

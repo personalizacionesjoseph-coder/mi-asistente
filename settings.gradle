@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = 'MiAsistente'
+rootProject.name = 'Lyra'
 include ':app'
