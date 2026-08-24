@@ -7,6 +7,8 @@ public class ReminderItem {
     public String notes;
     public long eventTime;
     public int remindMinutes;
+    public long calendarEventId;
+    public long calendarId;
 
     public ReminderItem() {
         id = 0;
@@ -15,5 +17,7 @@ public class ReminderItem {
         notes = "";
         eventTime = 0;
         remindMinutes = 0;
+        calendarEventId = 0;
+        calendarId = 0;
     }
 }

@@ -1,0 +1,14 @@
+MI ASISTENTE V3 — CAMBIOS PRINCIPALES
+
+1. Interfaz moderna rediseñada.
+2. Configuración de tema: Sistema, Claro y Oscuro.
+3. Cinco colores de acento.
+4. Orden configurable de las secciones de Inicio.
+5. Secciones de Inicio visibles/ocultas individualmente.
+6. Integración con calendarios Google sincronizados en Android.
+7. Sincronización de nuevas citas y recordatorios.
+8. Actualización de eventos vinculados desde Google Calendar al volver a la app.
+9. Eliminación sincronizada de eventos vinculados.
+10. La creación por voz también puede enviar el evento a Google Calendar.
+11. Base de datos migrada a versión 2 para guardar IDs de calendario.
+12. App versión 0.3.0 (versionCode 3).

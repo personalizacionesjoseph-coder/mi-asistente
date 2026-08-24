@@ -1,0 +1,16 @@
+MI ASISTENTE V2
+
+Cambios principales:
+- Interfaz principal completamente renovada.
+- Botón central de micrófono.
+- Creación de citas y recordatorios por voz.
+- Consultas por voz: agenda de hoy, mañana y próximo evento.
+- Confirmación hablada con Text-to-Speech.
+- Reconocimiento en el dispositivo cuando Android lo permite.
+- Confirmación antes de guardar una orden interpretada.
+- Vistas Hoy y Próximos.
+- Accesos rápidos para crear cita o recordatorio.
+- Versión 0.2.0.
+
+Limitación intencional:
+Esta versión NO mantiene el micrófono escuchando cuando la app está cerrada. Para un verdadero modo de asistente global/hotword se necesita otra arquitectura y permisos del sistema.
