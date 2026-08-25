@@ -538,6 +538,11 @@ public class MainActivity extends Activity {
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage());
         intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        // Let the user dictate a complete instruction instead of cutting the phrase
+        // after the first short pause. Android speech engines treat these as hints.
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 900L);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1100L);
+        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1700L);
         if (onDevice) intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         try {
             setListeningUi(true, "Te escucho…");
@@ -635,7 +640,7 @@ public class MainActivity extends Activity {
             return;
         }
         if (command.action == VoiceCommand.Action.UNKNOWN) {
-            promptAndListen("No entendí la instrucción. Inténtalo de otra forma.");
+            promptAndListen("Dime la instrucción completa, por ejemplo: agrega un recordatorio para mañana a las siete con el nombre de York.");
             return;
         }
         if (!command.issue.isEmpty()) {
@@ -974,9 +979,9 @@ public class MainActivity extends Activity {
 
     private String defaultVoiceHint() {
         if (AppPrefs.wakeWordEnabled(this)) {
-            return WakeWordService.isRunning() ? "Lyra activa · di “Lyra” o toca para hablar" : "Activación pendiente · toca para hablar";
+            return WakeWordService.isRunning() ? "Di “Lyra” y tu orden completa · o toca para hablar" : "Activación pendiente · toca y dicta tu orden completa";
         }
-        return "Toca para hablar con Lyra";
+        return "Toca y dicta una orden completa";
     }
 
     private void pauseWakeService() {

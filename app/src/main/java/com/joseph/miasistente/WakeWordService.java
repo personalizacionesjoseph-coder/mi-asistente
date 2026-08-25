@@ -250,6 +250,14 @@ public class WakeWordService extends Service {
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, recognitionLanguage());
         intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5);
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true);
+        if (mode != Mode.WAIT_WAKE) {
+            // Give the user enough time to dictate a complete natural instruction before
+            // Android closes the utterance. Recognizer implementations may tune/ignore
+            // these hints, but supported engines use them to avoid cutting long commands.
+            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 900L);
+            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1100L);
+            intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1700L);
+        }
         if (usingOnDevice) intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true);
         try {
             recognizer.startListening(intent);
@@ -275,14 +283,17 @@ public class WakeWordService extends Service {
     }
 
     private boolean containsWakeWord(String text) {
-        String n = VoiceCommandParser.normalizeForIntent(text);
-        return !n.isEmpty() && n.matches(".*\\b(lyra|lira)\\b.*");
+        return VoiceTurnUtils.containsWakeWord(text);
     }
 
     private boolean anyResultContainsWakeWord(ArrayList<String> matches) {
         if (matches == null) return false;
         for (String match : matches) if (containsWakeWord(match)) return true;
         return false;
+    }
+
+    private String bestCommandAfterWakeWord(ArrayList<String> matches) {
+        return VoiceTurnUtils.bestCommandAfterWakeWord(matches);
     }
 
     private String recognitionLanguage() {
@@ -362,7 +373,7 @@ public class WakeWordService extends Service {
         }
         if (command.action == VoiceCommand.Action.UNKNOWN) {
             db.close();
-            speakThenListen("No entendí la instrucción. Inténtalo de otra forma.");
+            speakThenListen("Dime la instrucción completa, por ejemplo: agrega un recordatorio para mañana a las siete con el nombre de York.");
             return;
         }
         if (!command.issue.isEmpty()) {
@@ -508,8 +519,23 @@ public class WakeWordService extends Service {
             }
             String first = matches.get(0);
             if (mode == Mode.WAIT_WAKE) {
-                if (anyResultContainsWakeWord(matches)) activateAssistant();
-                else scheduleWakeListening(220);
+                String embeddedCommand = bestCommandAfterWakeWord(matches);
+                if (embeddedCommand == null) {
+                    scheduleWakeListening(220);
+                } else if (embeddedCommand.isEmpty()) {
+                    // “Lyra” by itself opens a fresh command turn.
+                    activateAssistant();
+                } else {
+                    // “Lyra, agrega un recordatorio…” works in one breath. Do not
+                    // interrupt the user with “Te escucho” and force them to repeat it.
+                    mode = Mode.WAIT_COMMAND;
+                    pendingVoiceText = "";
+                    pendingCommand = null;
+                    retryCount = 0;
+                    ignoreWakeEchoUntil = 0L;
+                    updateForeground("Lyra", "Procesando tu instrucción…");
+                    handleCommandText(embeddedCommand);
+                }
             } else {
                 if (System.currentTimeMillis() < ignoreWakeEchoUntil && anyResultContainsWakeWord(matches)) {
                     mainHandler.postDelayed(WakeWordService.this::startRecognitionForCurrentMode, 250);
@@ -521,9 +547,10 @@ public class WakeWordService extends Service {
 
         @Override
         public void onPartialResults(Bundle partialResults) {
-            if (mode != Mode.WAIT_WAKE || paused) return;
-            ArrayList<String> matches = partialResults.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-            if (anyResultContainsWakeWord(matches)) activateAssistant();
+            // Do not activate on a partial “Lyra”. The user may still be saying
+            // “Lyra, agrega un recordatorio…”. Activating here used to cut the sentence
+            // and made the next isolated word look like the reminder title. We wait for
+            // the final utterance and then either process the whole command or prompt.
         }
 
         @Override public void onEvent(int eventType, Bundle params) {}

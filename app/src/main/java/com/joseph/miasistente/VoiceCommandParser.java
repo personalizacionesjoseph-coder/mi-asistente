@@ -116,6 +116,16 @@ public final class VoiceCommandParser {
             return out;
         }
 
+        // A free word after the wake word is not automatically a reminder title.
+        // Require a real creation cue (or a sufficiently clear temporal instruction)
+        // before entering CREATE mode. Follow-up answers are merged with the original
+        // command, so replies such as “York”, “mañana” or “a las siete” still work
+        // once Lyra has already understood the user's intent.
+        if (!hasCreateIntent(text)) {
+            out.action = VoiceCommand.Action.UNKNOWN;
+            return out;
+        }
+
         out.action = VoiceCommand.Action.CREATE;
         out.kind = classifyKind(text);
         out.title = cleanupTitle(original, out.kind);
@@ -191,6 +201,28 @@ public final class VoiceCommandParser {
         if (containsAny(text, "tarea", "pendiente", "tengo que", "debo ", "por hacer")) return "Tarea";
         if (looksLikeAppointment(text)) return "Cita";
         return "Recordatorio";
+    }
+
+    private static boolean hasCreateIntent(String text) {
+        if (text == null || text.trim().isEmpty()) return false;
+        if (containsAny(text,
+                "recuerdame", "recordatorio", "agenda", "agendame", "agendar",
+                "agrega", "agregar", "anade", "anadir", "crea", "crear",
+                "programa", "programar", "ponme", "pon un", "pon una",
+                "cita", "reunion", "consulta", "entrevista",
+                "tarea", "pendiente", "tengo que", "debo ",
+                "anota", "apunta", "toma nota", "guarda una nota")) {
+            return true;
+        }
+
+        // Natural shorthand such as “llamar a York mañana a las siete de la noche”
+        // is accepted only when it contains both a calendar cue and a time cue.
+        boolean dateCue = text.matches(".*\\b(hoy|manana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\\b.*")
+                || NUMERIC_DATE.matcher(text).find() || MONTH_DATE.matcher(text).find();
+        boolean timeCue = TIME_AT.matcher(text).find() || TIME_WORD.matcher(text).find()
+                || TIME_DAYPART.matcher(text).find() || TIME_COLON.matcher(text).find()
+                || TIME_AMPM.matcher(text).find();
+        return dateCue && timeCue && text.trim().split("\\s+").length >= 3;
     }
 
     private static int parseSnoozeMinutes(String text) {
@@ -335,6 +367,12 @@ public final class VoiceCommandParser {
         String s = original == null ? "" : original.trim();
         if (s.isEmpty()) return "";
 
+        String named = extractExplicitName(s);
+        if (!named.isEmpty()) {
+            if ("Cita".equals(kind)) return "Cita con " + titleCasePerson(named);
+            return capitalizeFirst(named);
+        }
+
         s = s.replaceFirst("(?iu)^\\s*(oye\\s+lyra[,.:]?\\s*|oye\\s+lira[,.:]?\\s*|lyra[,.:]?\\s*|lira[,.:]?\\s*)", "");
         s = s.replaceFirst("(?iu)^\\s*(por\\s+favor\\s+)?(quisiera|quiero|necesito|podr[ií]as?|puedes)\\s+", "");
         s = s.replaceFirst("(?iu)^\\s*(que\\s+)?", "");
@@ -355,7 +393,7 @@ public final class VoiceCommandParser {
             return capitalizeFirst(s);
         }
 
-        s = s.replaceFirst("(?iu)^\\s*(recu[eé]rdame|recordarme|ponme\\s+un\\s+recordatorio|pon\\s+un\\s+recordatorio|crea(?:r)?\\s+un\\s+recordatorio|ag[eé]ndame|agendar|agenda|programa(?:r)?|crea(?:r)?)\\s*", "");
+        s = s.replaceFirst("(?iu)^\\s*(recu[eé]rdame|recordarme|ponme\\s+un\\s+recordatorio|pon\\s+un\\s+recordatorio|crea(?:r)?\\s+un\\s+recordatorio|agrega(?:r)?|a[nñ]ade(?:r)?|ag[eé]ndame|agendar|agenda|programa(?:r)?|crea(?:r)?)\\s*", "");
 
         if ("Cita".equals(kind)) {
             s = s.replaceFirst("(?iu)^\\s*(una?\\s+)?cita\\s*", "");
@@ -365,6 +403,8 @@ public final class VoiceCommandParser {
             s = s.replaceFirst("(?iu)^\\s*para\\s+con\\s+", "con ");
         } else {
             s = s.replaceFirst("(?iu)^\\s*(un\\s+)?recordatorio\\s*", "");
+            s = s.replaceFirst("(?iu)^\\s*(?:para\\s+)?con\\s+(?:el\\s+)?nombre\\s+de\\s+", "");
+            s = s.replaceFirst("(?iu)^\\s*que\\s+se\\s+llame\\s+", "");
         }
 
         s = removeDatesAndTimes(s);
@@ -383,6 +423,20 @@ public final class VoiceCommandParser {
             s = capitalizeFirst(s);
         }
         return s;
+    }
+
+    private static String extractExplicitName(String original) {
+        if (original == null || original.trim().isEmpty()) return "";
+        Matcher m = Pattern.compile("(?iu)\\b(?:con\\s+(?:el\\s+)?nombre\\s+de|con\\s+nombre\\s+de|que\\s+se\\s+llame|llamad[oa]|t[ií]tulo)\\s+(.+)$")
+                .matcher(original.trim());
+        if (!m.find()) return "";
+        String value = m.group(1);
+        value = removeDatesAndTimes(value);
+        value = removeDayWords(value);
+        value = value.replaceAll("(?iu)\\b(?:para|a)\\s*$", " ")
+                .replaceAll("[,.!?;:]+$", " ")
+                .replaceAll("\\s+", " ").trim();
+        return value;
     }
 
     private static String removeDayWords(String s) {

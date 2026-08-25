@@ -1,0 +1,44 @@
+LYRA V5.2 · PRUEBAS DE CONVERSACIÓN NATURAL
+Fecha: 25 ago 2026
+
+PRUEBAS PURAS DE VOZ (Java 17, sin Android SDK)
+- 21 aserciones ejecutadas: 21 correctas, 0 fallos.
+- Orden completa: “agrega un recordatorio para mañana a las siete de la noche con el nombre de York”.
+  Resultado: CREATE / Recordatorio / título “York” / mañana / 19:00 / sin datos faltantes.
+- Orden completa con wake word: “Lyra, agrega un recordatorio para mañana a las siete de la noche con el nombre de York”.
+  Resultado: se conserva la orden posterior a “Lyra” y el parser genera el mismo recordatorio.
+- “York” aislado: UNKNOWN. No crea recordatorio ni lo usa como título por defecto.
+- “hola” aislado: UNKNOWN.
+- “mañana” aislado: UNKNOWN.
+- Conversación guiada comprobada por acumulación de contexto:
+  1) “agrega un recordatorio” -> pregunta nombre/fecha/hora.
+  2) “York” -> completa solo el nombre.
+  3) “mañana” -> completa solo la fecha.
+  4) “a las siete de la noche” -> completa la hora.
+- Forma natural abreviada: “llamar a York mañana a las siete de la noche” -> Recordatorio “Llamar a York”, 19:00.
+- Wake word “Lyra” y variante fonética “Lira”: reconocidas.
+- “mira”: no se reconoce como wake word.
+- “Lyra” sola: deja comando vacío para abrir un turno nuevo.
+- “Lyra, agrega…”: extrae la instrucción completa posterior al wake word.
+- Varias hipótesis del reconocedor: se elige la hipótesis con la instrucción posterior a Lyra más completa.
+
+CAMBIOS DE FLUJO REVISADOS
+- WakeWordService ya no dispara el asistente al primer resultado parcial de “Lyra”; espera el resultado final para no cortar la frase.
+- Si wake word + comando llegan en la misma frase, la orden se procesa directamente.
+- Una palabra libre sin intención ya no entra automáticamente en CREATE.
+- El micrófono manual y el turno posterior al wake word usan pistas de silencio para capturar frases más largas.
+- Las referencias internas a startRecognitionForCurrentMode dentro de Listener siguen cualificadas con WakeWordService.this.
+
+VALIDACIONES DEL PROYECTO
+- 16 XML: 0 errores de sintaxis.
+- 9 componentes declarados en AndroidManifest: 0 clases faltantes.
+- 11 referencias R.drawable: 0 recursos faltantes.
+- Balance estructural de llaves Java: 0 errores.
+- Revisión javac sin Android SDK: no se detectaron errores de sintaxis ni referencias de método inválidas; los errores restantes son únicamente símbolos Android ausentes en este entorno.
+- Ejemplo no deseado anterior: 0 coincidencias en el proyecto.
+- versionCode: 10.
+- versionName: 0.5.2.
+- Artefacto configurado: Lyra-V5.2-APK.
+
+LIMITACIÓN
+El APK real debe compilarse en GitHub Actions porque este entorno no tiene Android SDK. La prueba definitiva de SpeechRecognizer depende además del motor de reconocimiento instalado en el teléfono.

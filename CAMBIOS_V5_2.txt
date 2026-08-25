@@ -1,0 +1,24 @@
+LYRA V5.2 · CONVERSACIÓN NATURAL
+Versión 0.5.2
+
+OBJETIVO
+Corregir el flujo de voz para que Lyra entienda una instrucción completa antes de decidir qué guardar y dónde guardarlo.
+
+CAMBIOS
+- Una palabra aislada después de activar Lyra ya no se convierte automáticamente en el nombre de un recordatorio.
+- El parser exige una intención real antes de crear una cita, recordatorio, tarea o nota.
+- “Lyra, agrega un recordatorio para mañana a las siete de la noche con el nombre de York” se procesa en una sola frase.
+- “Lyra” + orden en el mismo aliento ya no se corta al detectar el wake word.
+- La detección de wake word espera el resultado final de la frase y conserva lo dicho después de “Lyra/Lira”.
+- Si el usuario dice solo “Lyra”, Lyra responde “Te escucho” y abre un turno nuevo.
+- Si el usuario dice luego solo “York” sin haber dado una intención, Lyra pide una instrucción completa y no crea nada.
+- En conversaciones guiadas, una respuesta corta sí rellena el dato que Lyra preguntó: nombre, fecha u hora.
+- Se añadieron pistas de silencio para permitir dictados más largos antes de cerrar el reconocimiento.
+- Se ampliaron expresiones de creación: agrega/agregar, añade/añadir y frases naturales con fecha + hora.
+- Se añadió extracción de nombres explícitos: “con el nombre de…”, “que se llame…”, “llamado…” y “título…”.
+
+PRIVACIDAD
+Lyra no guarda audio crudo. El reconocimiento entrega texto y Lyra interpreta ese texto localmente con su parser.
+
+RESULTADO ESPERADO
+El workflow Build APK publica `Lyra-V5.2-APK`.

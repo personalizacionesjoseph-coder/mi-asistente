@@ -16,7 +16,7 @@ VALIDACIONES LOCALES
 - Componentes del AndroidManifest: 0 clases faltantes.
 - 11 referencias R.drawable verificadas: 0 recursos faltantes.
 - Balance estructural de llaves Java: 0 errores.
-- Búsqueda global del ejemplo no deseado “Carlos”: 0 coincidencias.
+- Búsqueda global del ejemplo no deseado anterior: 0 coincidencias.
 - versionCode: 9.
 - versionName: 0.5.1.
 - Artefacto configurado: Lyra-V5.1-APK.

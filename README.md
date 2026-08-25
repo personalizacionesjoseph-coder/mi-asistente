@@ -1,6 +1,17 @@
-# Lyra V5.1 — Asistente personal Android
+# Lyra V5.2 — Asistente personal Android
 
 Lyra es una mini app Android nativa y local orientada a organización personal por voz.
+
+
+## V5.2: conversación natural
+
+- Decir solo `Lyra` abre el turno; una palabra suelta posterior ya no se guarda automáticamente como título.
+- Puedes decir en una sola frase: `Lyra, agrega un recordatorio para mañana a las siete de la noche con el nombre de York`.
+- Si dices `Lyra` y la orden en la misma frase, Lyra procesa la orden completa sin obligarte a repetirla.
+- Si faltan datos, pregunta únicamente el dato faltante y conserva el contexto anterior.
+- El reconocimiento espera una frase más completa antes de cerrar el dictado, reduciendo cortes por pausas breves.
+- Lyra clasifica la instrucción entre cita, recordatorio, tarea o nota antes de guardar.
+- Una frase sin intención reconocible, por ejemplo solo `York`, no crea nada.
 
 ## V5: consolidación
 
@@ -32,7 +43,7 @@ El perfil, memoria, tareas, notas y agenda local se guardan en el teléfono. Lyr
 
 ## Compilar sin Android Studio
 
-El repositorio incluye `.github/workflows/build-apk.yml`. Al subir esta versión a GitHub, el workflow `Build APK` crea un APK de depuración y publica el artefacto `Lyra-V5.1-APK`.
+El repositorio incluye `.github/workflows/build-apk.yml`. Al subir esta versión a GitHub, el workflow `Build APK` crea un APK de depuración y publica el artefacto `Lyra-V5.2-APK`.
 
 ## Tecnología
 
