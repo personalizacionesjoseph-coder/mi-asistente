@@ -1,59 +1,33 @@
-# Lyra V5.2 — Asistente personal Android
+# Lyra V6 Live · 0.6.0
 
-Lyra es una mini app Android nativa y local orientada a organización personal por voz.
+Lyra pasa de un parser rígido a conversación de voz en tiempo real con OpenAI Realtime API.
 
+## Qué incluye
+- Conversación continua por WebRTC.
+- GPT decide cuándo crear citas, recordatorios, tareas o notas mediante herramientas controladas.
+- Consultar hoy/mañana/todo.
+- Completar, borrar, reprogramar y posponer.
+- Memoria local.
+- Recordatorios Android y reprogramación tras reinicio.
+- Sincronización opcional con el primer calendario Google editable del dispositivo.
+- UI responsive dentro de Android.
+- La API key NO se guarda en el APK.
 
-## V5.2: conversación natural
+## Antes de usar Lyra Live
+Necesitas desplegar `server/cloudflare-worker.js` en Cloudflare Workers (o adaptar el mismo endpoint a otro servidor) y configurar el secreto `OPENAI_API_KEY`.
 
-- Decir solo `Lyra` abre el turno; una palabra suelta posterior ya no se guarda automáticamente como título.
-- Puedes decir en una sola frase: `Lyra, agrega un recordatorio para mañana a las siete de la noche con el nombre de York`.
-- Si dices `Lyra` y la orden en la misma frase, Lyra procesa la orden completa sin obligarte a repetirla.
-- Si faltan datos, pregunta únicamente el dato faltante y conserva el contexto anterior.
-- El reconocimiento espera una frase más completa antes de cerrar el dictado, reduciendo cortes por pausas breves.
-- Lyra clasifica la instrucción entre cita, recordatorio, tarea o nota antes de guardar.
-- Una frase sin intención reconocible, por ejemplo solo `York`, no crea nada.
+La app pide a ese servidor `/token` una credencial temporal. El teléfono usa esa credencial para abrir WebRTC directamente con OpenAI.
 
-## V5: consolidación
+## GitHub Actions
+Sube el contenido de esta carpeta al repositorio. `Actions > Build APK` genera el artefacto `Lyra-V6-Live-APK`.
 
-- Pantalla principal **Hoy con Lyra**.
-- Citas, recordatorios, tareas y notas en una sola bandeja.
-- Tareas y notas sin fecha obligatoria.
-- Conversación por voz de varios turnos.
-- Memoria local, visible, editable y eliminable.
-- Comandos de voz para crear, completar, cancelar, reprogramar y posponer.
-- Google Calendar para citas y recordatorios programados.
-- Notificaciones con acciones: Hecho, 10 min, 1 hora y Reprogramar.
-- Perfil local, tema claro/oscuro, colores y orden de Inicio.
-- Activación por voz “Lyra”: prioriza reconocimiento local cuando Android lo ofrece y usa el servicio configurado en el sistema como respaldo.
-- Icono propio de Lyra incluido.
+## Primera configuración en el teléfono
+1. Instala el APK.
+2. Abre Ajustes.
+3. Escribe tu nombre.
+4. Pega la URL HTTPS del Worker, sin `/token` al final.
+5. Guarda.
+6. Toca `Hablar con Lyra` y concede micrófono.
 
-## Ejemplos de voz
-
-- `Lyra, agenda una reunión con Yorch mañana a las 3 de la tarde.`
-- `Lyra, mañana tengo que pagar la luz.`
-- `Lyra, anota que el código de pintura es A527.`
-- `Lyra, recuerda que Yorch es mi proveedor.`
-- `Lyra, marca pagar la luz como hecho.`
-- `Lyra, mueve la cita con Yorch para el viernes a las 10 de la mañana.`
-- `Lyra, pospone pagar la luz 10 minutos.`
-
-## Privacidad
-
-El perfil, memoria, tareas, notas y agenda local se guardan en el teléfono. Lyra no necesita un servidor propio para estas funciones. La sincronización de calendario utiliza los calendarios ya configurados en Android.
-
-## Compilar sin Android Studio
-
-El repositorio incluye `.github/workflows/build-apk.yml`. Al subir esta versión a GitHub, el workflow `Build APK` crea un APK de depuración y publica el artefacto `Lyra-V5.2-APK`.
-
-## Tecnología
-
-- Android nativo en Java.
-- minSdk 26.
-- target/compileSdk 36.
-- Android Gradle Plugin 9.3.0.
-- Java 17.
-- Sin librerías externas dentro de la app.
-
-## Nota sobre “Di Lyra”
-
-Esta versión corrige varios problemas de compatibilidad, recuperación del reconocimiento y conflicto de micrófono. Aun así, la palabra de activación se apoya en `SpeechRecognizer` de Android. Para una versión comercial con escucha permanente de máxima fiabilidad conviene sustituir esa pieza por un motor dedicado de wake word.
+## Importante
+El acceso a la API de OpenAI se factura aparte de ChatGPT. No subas tu API key a GitHub ni la escribas dentro del APK.
