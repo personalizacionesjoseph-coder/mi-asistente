@@ -1,4 +1,4 @@
-# Lyra V6 Live · 0.6.0
+# Lyra V6 Live · 0.6.1
 
 Lyra pasa de un parser rígido a conversación de voz en tiempo real con OpenAI Realtime API.
 
@@ -19,7 +19,7 @@ Necesitas desplegar `server/cloudflare-worker.js` en Cloudflare Workers (o adapt
 La app pide a ese servidor `/token` una credencial temporal. El teléfono usa esa credencial para abrir WebRTC directamente con OpenAI.
 
 ## GitHub Actions
-Sube el contenido de esta carpeta al repositorio. `Actions > Build APK` genera el artefacto `Lyra-V6-Live-APK`.
+Sube el contenido de esta carpeta al repositorio. `Actions > Build APK` genera el artefacto `Lyra-V6.0.1-Live-APK`.
 
 ## Primera configuración en el teléfono
 1. Instala el APK.
@@ -31,3 +31,9 @@ Sube el contenido de esta carpeta al repositorio. `Actions > Build APK` genera e
 
 ## Importante
 El acceso a la API de OpenAI se factura aparte de ChatGPT. No subas tu API key a GitHub ni la escribas dentro del APK.
+
+
+## Corrección 0.6.1
+- GitHub Actions actualizado a actions/checkout@v7, actions/setup-java@v6 y android-actions/setup-android@v4.
+- Eliminada la solicitud del paquete Android obsoleto `tools`.
+- El SDK instala únicamente `platform-tools`, `platforms;android-36` y `build-tools;36.0.0`.
